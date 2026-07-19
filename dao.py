@@ -7,6 +7,7 @@ from db_models.trucks import Truck
 from db_models.drivers import Driver
 from db_models.routes import Route
 from db_models.telemetry import Telemetry
+from db_models.geofence import Geofence
 
 # Configuracion basica para ver errores
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -24,6 +25,7 @@ class FleetDAO:
             self._drivers = self._db["drivers"]
             self._routes = self._db["routes"]
             self._telemetry = self._db["telemetry"]
+            self._geofences = self._db["geofences"]
             
             # Create unique index for telemetry (truck_id, timestamp)
             self._telemetry.create_index([("truck_id", 1), ("timestamp", 1)], unique=True)
@@ -156,3 +158,33 @@ class FleetDAO:
         except PyMongoError as e:
             logger.error(f"Error en agregación estadística: {e}")
             return {}
+
+    # --- Geofences ---
+    def add_geofence(self, geofence: Geofence) -> str:
+        try:
+            res = self._geofences.insert_one(geofence.to_dict())
+            logger.info(f"Geocerca insertada con ID: {res.inserted_id}")
+            return str(res.inserted_id)
+        except PyMongoError as e:
+            logger.error(f"Error insertando geocerca: {e}")
+            raise
+
+    def get_telemetry_in_polygon(self, truck_id: str, polygon: list[list[float]]) -> list[dict]:
+        # Busca usando $geoWithin si el camion estuvo dentro de un poligono (geocerca)
+        # Esto supera a SAVIA porque aplicamos $geoWithin sobre telemetria en movimiento
+        try:
+            query = {
+                "truck_id": truck_id,
+                "location": {
+                    "$geoWithin": {
+                        "$geometry": {
+                            "type": "Polygon",
+                            "coordinates": [polygon]
+                        }
+                    }
+                }
+            }
+            return list(self._telemetry.find(query))
+        except PyMongoError as e:
+            logger.error(f"Error en búsqueda por polígono: {e}")
+            return []

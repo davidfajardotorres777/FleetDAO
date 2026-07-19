@@ -8,3 +8,8 @@ jupyter
 nbformat
 folium
 matplotlib
+
+streamlit
+scikit-learn
+
+streamlit-folium
