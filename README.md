@@ -1,60 +1,105 @@
 # FleetDAO
-Sistema de Gestion de Flotas
+Sistema Avanzado de Gestion de Flotas y Telemetria
 
 Autor: Alesandro David Fajardo Torres
 Materia: Bases de Datos II - Proyecto Integrador 2026
 
 ---
 
-## 1. Introduccion
+## 1. El Problema
 
-Las empresas de logistica suelen tener problemas para controlar los gastos de sus flotas. El costo mas grande que tienen es el combustible y arreglar los camiones cuando se rompen. Muchos sistemas de GPS actuales solo muestran donde esta el camion, pero no analizan si el chofer lo esta manejando mal o si el motor esta levantando temperatura de mas.
+Las empresas de logistica y transporte pierden millones de pesos al año por no controlar como se manejan sus camiones. El exceso de velocidad, las rutas ineficientes y los motores sobrecalentados son gastos ocultos gigantescos. Los sistemas GPS tradicionales te dicen donde esta el camion, pero no analizan los datos mecanicos ni te ayudan a prevenir roturas.
 
-Mi proyecto, FleetDAO, busca solucionar esto. Es un sistema para recibir datos de los camiones, guardarlos de forma segura y analizarlos para ayudar a prevenir problemas mecanicos antes de que pasen.
+FleetDAO es una solucion completa a este problema. Es un sistema capaz de recibir, guardar y analizar la telemetria (ubicacion, velocidad, rpm, temperatura) de cientos de camiones en tiempo real. 
 
-## 2. Herramientas que use
+## 2. Herramientas y Arquitectura
 
-Para que el proyecto funcione bien, use estas herramientas:
+Para que el proyecto escale bien y sea rapido, arme esta estructura:
 
-*   MongoDB (4.4): Es la base de datos principal. Use indices geoespaciales (2dsphere) para hacer consultas basadas en la ubicacion.
-*   FastAPI: Para hacer la API que recibe los datos de los sensores del camion.
-*   Pydantic: Para crear los modelos de datos y validar que la informacion este correcta antes de guardarla.
-*   Jupyter Notebook: Lo use junto con folium para los mapas y matplotlib para hacer graficos comparando la velocidad con la temperatura del motor.
+*   **MongoDB (4.4)**: Base de datos NoSQL principal. Ideal para guardar muchisimos datos por segundo (series temporales).
+*   **Indices Geoespaciales (2dsphere)**: Mongo permite hacer busquedas por ubicacion (ej. "dame todos los camiones a 10km de este punto").
+*   **Aggregation Pipelines**: Uso comandos de Mongo como `$group`, `$avg` y `$max` para calcular promedios directamente en la base de datos sin saturar la memoria de Python.
+*   **FastAPI & Pydantic**: El backend que recibe los datos. Pydantic asegura que ningun camion mande datos corruptos (como velocidades de 500km/h).
+*   **Jupyter, Folium y Matplotlib**: Un entorno de analisis de datos para mapear las rutas interactivamente y ver graficos de rendimiento del motor.
 
-## 3. Como funciona
+## 3. Estructura de la Base de Datos
 
-El funcionamiento basico es este:
-1. El camion manda los datos de ubicacion, velocidad y temperatura por JSON.
-2. FastAPI y Pydantic reciben los datos y los validan.
-3. El archivo dao.py los guarda en MongoDB.
-4. Para analizar los datos, uso Aggregation Pipelines de MongoDB ($group, $avg, $max) para sacar el promedio de velocidad y ver si hay temperaturas muy altas.
-5. Todo esto se puede visualizar en el Jupyter Notebook con los mapas y los graficos.
+El sistema usa 4 colecciones principales.
 
----
+### Colecciones:
+1. **trucks (Camiones):** Guarda la informacion estatica del vehiculo (marca, capacidad en toneladas).
+2. **drivers (Choferes):** Guarda los datos del empleado y su tipo de licencia.
+3. **routes (Rutas):** Asigna un camion y un chofer a un viaje desde un origen a un destino.
+4. **telemetry (Telemetria):** La coleccion mas pesada. Guarda un registro cada pocos segundos de cada camion (timestamp, velocidad, temperatura, nivel de combustible y coordenadas exactas).
 
-## 4. Archivos del proyecto
-
-FleetDAO/
-- db_models/: Modelos de Pydantic para validar datos (choferes, rutas, telemetria, camiones).
-- dao.py: Clase principal para interactuar con la base de datos.
-- config_vars.py: Archivo para configurar las variables de entorno.
-- main.py: La API de FastAPI.
-- seed.py: Script para cargar los datos de prueba y poder probar el sistema.
-- make_nb.py: Script que uso para generar el Notebook con todos los graficos.
-- demo.ipynb: El Notebook para ver los analisis y los mapas.
-- docker-compose.yml: Archivo para levantar la base de datos localmente.
-- libs.txt: Las librerias de python necesarias.
+### Indices de la Base de Datos:
+Para que las consultas sean rapidas, cree indices especiales en el archivo `dao.py`:
+*   **Indice unico compuesto**: `[("truck_id", 1), ("timestamp", 1)]` -> Para que no se guarde el mismo dato dos veces si hay un error de red.
+*   **Indice Geoespacial**: `[("location", "2dsphere")]` -> Para que funcionen los mapas y la busqueda por radio espacial.
 
 ---
 
-## 5. Como correr el proyecto
+## 4. Archivos del Proyecto
 
-Primero que nada hay que instalar Python y tener Docker andando.
+*   `db_models/` -> Todas las clases de Pydantic que validan la informacion de entrada.
+*   `dao.py` -> El Data Access Object. Aca esta toda la logica de conexion y consultas a MongoDB.
+*   `main.py` -> API construida en FastAPI.
+*   `seed.py` -> Script para llenar la base de datos con camiones y generar un viaje de prueba.
+*   `demo.ipynb` / `demo.html` -> El Notebook con el analisis geoespacial y los graficos.
+*   `docker-compose.yml` -> Para levantar la base de datos con un simple comando.
 
-Pasos:
-1. Bajar el repositorio.
-2. Crear un entorno virtual de python e instalar las cosas que estan en libs.txt (pip install -r libs.txt).
-3. Armar un archivo .env que tenga la configuracion (MONGO_URI=mongodb://localhost:27017 y DB_NAME=fleet_management).
-4. Levantar la base de datos corriendo "docker-compose up -d".
-5. Correr el archivo "seed.py" (python seed.py) para que la base de datos se llene con datos de prueba.
-6. Correr el archivo "make_nb.py" y despues abrir el jupyter notebook para ver todos los resultados, o abrir directo el archivo demo.html en el navegador.
+---
+
+## 5. Guia de Instalacion y Uso
+
+Necesitas tener Python 3 y Docker instalados.
+
+**Paso 1:** Clonar e instalar librerias.
+```bash
+python -m venv venv
+# En windows: venv\Scripts\activate | En linux: source venv/bin/activate
+pip install -r libs.txt
+```
+
+**Paso 2:** Crear el archivo `.env` en la misma carpeta.
+```text
+MONGO_URI=mongodb://localhost:27017/
+DB_NAME=fleet_db
+```
+
+**Paso 3:** Levantar la base de datos.
+```bash
+docker-compose up -d
+```
+
+**Paso 4:** Cargar los datos de prueba.
+```bash
+python seed.py
+```
+
+**Paso 5:** Ver los resultados.
+Podes abrir el archivo `demo.html` directamente en tu navegador web para ver los graficos y el mapa interactivo, o correr `jupyter notebook` en la consola y abrir `demo.ipynb` si queres ejecutar el codigo celda por celda.
+
+---
+
+## 6. Ejemplos de uso (Llamadas al DAO)
+
+Si queres usar el codigo desde otro archivo de Python, asi funciona el modelo:
+
+```python
+from dao import FleetDAO
+
+# 1. Me conecto a la base de datos
+db = FleetDAO()
+
+# 2. Busco todos los camiones
+camiones = db.get_trucks()
+camion_id = str(camiones[0]["_id"])
+
+# 3. Saco las estadisticas de ese camion (usa Aggregation Pipelines internamente)
+stats = db.get_truck_statistics(camion_id)
+print(f"Velocidad Promedio: {stats['velocidad_promedio']} km/h")
+
+# 4. Busco si el camion anduvo cerca de unas coordenadas (usa 2dsphere)
+datos_cercanos = db.get_telemetry_near(camion_id, lon=-61.0, lat=-33.0, max_distance_meters=50000)
+```
