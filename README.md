@@ -52,33 +52,53 @@ Para que las consultas sean rapidas, cree indices especiales en el archivo `dao.
 
 ## 5. Guia de Instalacion y Uso
 
-Necesitas tener Python 3 y Docker instalados.
+Necesitas tener Python 3 y Docker instalados en tu computadora.
 
-**Paso 1:** Clonar e instalar librerias.
+**Paso 1:** Clonar el proyecto y entrar a la carpeta.
+```bash
+git clone https://github.com/davidfajardotorres777/FleetDAO.git
+cd FleetDAO
+```
+
+**Paso 2:** Crear el entorno virtual e instalar librerias.
 ```bash
 python -m venv venv
-# En windows: venv\Scripts\activate | En linux: source venv/bin/activate
+# En windows: venv\Scripts\activate
+# En linux/mac: source venv/bin/activate
 pip install -r libs.txt
 ```
 
-**Paso 2:** Crear el archivo `.env` en la misma carpeta.
+**Paso 3:** Configurar las variables.
+Crea un archivo llamado `.env` en la raiz del proyecto con este texto:
 ```text
 MONGO_URI=mongodb://localhost:27017/
 DB_NAME=fleet_db
 ```
 
-**Paso 3:** Levantar la base de datos.
+**Paso 4:** Levantar la base de datos (MongoDB).
 ```bash
 docker-compose up -d
 ```
 
-**Paso 4:** Cargar los datos de prueba.
+**Paso 5:** Cargar los datos de prueba (Camiones y Rutas).
 ```bash
 python seed.py
 ```
 
-**Paso 5:** Ver los resultados.
-Podes abrir el archivo `demo.html` directamente en tu navegador web para ver los graficos y el mapa interactivo, o correr `jupyter notebook` en la consola y abrir `demo.ipynb` si queres ejecutar el codigo celda por celda.
+**Paso 6:** Probar la API de FastAPI.
+Para levantar el servidor y probar las funciones del backend en vivo:
+```bash
+uvicorn main:app --reload
+```
+Una vez que este corriendo, abri tu navegador y entra a `http://localhost:8000/docs`. Ahi vas a ver toda la interfaz interactiva (Swagger UI) para probar la API sin programar nada extra.
+
+**Paso 7:** Ver los graficos y mapas (Data Science).
+Si solo queres ver los resultados visuales, dale doble click al archivo `demo.html` para abrirlo en tu navegador. 
+Si queres ejecutar el codigo paso a paso, cerra el servidor de FastAPI, y en esa misma consola corre:
+```bash
+jupyter notebook
+```
+Y luego hace click en el archivo `demo.ipynb`.
 
 ---
 
