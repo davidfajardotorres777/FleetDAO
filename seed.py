@@ -11,7 +11,7 @@ from db_models.telemetry import Telemetry
 def seed_database():
     dao = FleetDAO()
     
-    # Check if already seeded
+    # Me fijo si ya hay datos cargados
     if len(dao.get_trucks()) > 0:
         print("La base de datos ya tiene camiones cargados, actualizando los datos de prueba...")
     else:
@@ -30,7 +30,7 @@ def seed_database():
     
     trucks = dao.get_trucks()
     if not trucks:
-        print("No trucks found!")
+        print("No se encontraron camiones!")
         return
         
     t1_id = str(trucks[0]["_id"])
@@ -44,25 +44,25 @@ def seed_database():
     current_fuel = 100.0
     current_temp = 70.0
     
-    # GPS: Buenos Aires (-58.3816, -34.6037) to Cordoba (-64.1835, -31.4201)
+    # Coordenadas: Buenos Aires a Cordoba
     start_lon, start_lat = -58.3816, -34.6037
     end_lon, end_lat = -64.1835, -31.4201
     
     total_steps = 120
     
-    for i in range(total_steps): # 2 hours of data, every minute
+    for i in range(total_steps): # Simulamos 2 horas de viaje, guardando datos cada minuto
         current_time = base_time + timedelta(minutes=i)
         
-        # Interpolate GPS
+        # Calculo el avance del camion en el mapa
         progress = i / float(total_steps - 1)
         current_lon = start_lon + (end_lon - start_lon) * progress
         current_lat = start_lat + (end_lat - start_lat) * progress
         
-        # Add some noise to GPS (wobble)
+        # Le meto ruido al GPS para que no sea una linea recta aburrida
         current_lon += random.uniform(-0.01, 0.01)
         current_lat += random.uniform(-0.01, 0.01)
         
-        # Simulate speed
+        # Acelera y frena el camion
         if i < 10:
             current_speed += random.uniform(5, 10)
         elif i > 110:
@@ -72,11 +72,11 @@ def seed_database():
             
         current_speed = max(0, min(100, current_speed))
         
-        # Over-speed event simulation around step 60
+        # Hacemos que pise el acelerador a fondo a la mitad del viaje para que salte una alerta
         if 55 < i < 65:
-            current_speed = 115.0 # Speeding!
+            current_speed = 115.0 # Exceso de velocidad
             
-        # Simulate engine RPM and Temp based on speed
+        # Suben las revoluciones y la temperatura si va mas rapido
         if current_speed == 0:
             current_rpm = 800
             current_temp = max(70, current_temp - 0.5)
@@ -84,11 +84,11 @@ def seed_database():
             current_rpm = int(1000 + (current_speed * 15) + random.uniform(-100, 100))
             current_temp = min(95, current_temp + random.uniform(-0.2, 0.5))
             
-        # Hot engine event around step 80
+        # Hacemos que se le caliente el motor mas adelante
         if 75 < i < 85:
-            current_temp = 105.0 # Overheating!
+            current_temp = 105.0 # Motor recalentado
             
-        # Simulate fuel consumption
+        # Va gastando combustible de a poco
         current_fuel -= random.uniform(0.05, 0.15)
         
         telemetry = Telemetry(
