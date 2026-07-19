@@ -9,14 +9,24 @@ from db_models.routes import Route
 from db_models.telemetry import Telemetry
 from db_models.geofence import Geofence
 
-# Configuracion basica para ver errores
+# Configuración básica para el registro de logs del sistema
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("FleetDAO")
 
 class FleetDAO:
-    # Clase para conectarse a MongoDB y hacer las consultas
-    # Maneja los camiones, choferes y la telemetria
+    """
+    Data Access Object (DAO) para la gestión del sistema de telemetría FleetDAO.
+
+    Proporciona una capa de abstracción para todas las interacciones con MongoDB,
+    garantizando el correcto manejo de errores, la gestión de índices geoespaciales
+    y temporales, y la ejecución de pipelines de agregación.
+    """
+
     def __init__(self):
+        """
+        Inicializa la conexión con MongoDB y establece las referencias a las colecciones.
+        Configura los índices necesarios para garantizar unicidad y búsquedas espaciales eficientes.
+        """
         try:
             self._client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
             self._db = self._client[DB_NAME]
@@ -27,21 +37,31 @@ class FleetDAO:
             self._telemetry = self._db["telemetry"]
             self._geofences = self._db["geofences"]
             
-            # Create unique index for telemetry (truck_id, timestamp)
+            # Índice compuesto único para evitar duplicación de eventos de telemetría
             self._telemetry.create_index([("truck_id", 1), ("timestamp", 1)], unique=True)
-            # Create 2dsphere index for location
+            # Índice geoespacial 2dsphere para permitir operaciones $near y $geoWithin
             self._telemetry.create_index([("location", "2dsphere")])
-            logger.info("Se conecto bien a Mongo y se crearon los indices.")
+            logger.info("Conexión exitosa a MongoDB e índices inicializados.")
         except PyMongoError as e:
-            logger.error(f"Fallo la conexion a MongoDB: {e}")
+            logger.error(f"Fallo crítico en la conexión a MongoDB: {e}")
             raise
 
     def close(self):
+        """Cierra la conexión activa con el clúster de MongoDB."""
         self._client.close()
-        logger.info("Conexión a MongoDB cerrada.")
+        logger.info("Conexión a MongoDB cerrada de manera segura.")
 
     # --- Trucks ---
     def add_truck(self, truck: Truck) -> str:
+        """
+        Inserta un nuevo camión en la base de datos.
+        
+        Args:
+            truck (Truck): Entidad validada por Pydantic que representa el camión.
+            
+        Returns:
+            str: El ObjectID generado por MongoDB.
+        """
         try:
             res = self._trucks.insert_one(truck.to_dict())
             logger.info(f"Camión insertado con ID: {res.inserted_id}")
@@ -51,6 +71,7 @@ class FleetDAO:
             raise
 
     def get_trucks(self) -> list[dict]:
+        """Recupera la lista de todos los camiones registrados."""
         try:
             return list(self._trucks.find())
         except PyMongoError as e:
@@ -59,6 +80,12 @@ class FleetDAO:
 
     # --- Drivers ---
     def add_driver(self, driver: Driver) -> str:
+        """
+        Inserta un nuevo conductor en el sistema.
+        
+        Args:
+            driver (Driver): Modelo Pydantic validado.
+        """
         try:
             res = self._drivers.insert_one(driver.to_dict())
             logger.info(f"Conductor insertado con ID: {res.inserted_id}")
@@ -68,6 +95,7 @@ class FleetDAO:
             raise
 
     def get_drivers(self) -> list[dict]:
+        """Obtiene la nómina completa de conductores."""
         try:
             return list(self._drivers.find())
         except PyMongoError as e:
@@ -76,6 +104,7 @@ class FleetDAO:
 
     # --- Routes ---
     def add_route(self, route: Route) -> str:
+        """Asigna una nueva ruta logística a un camión y conductor específicos."""
         try:
             res = self._routes.insert_one(route.to_dict())
             logger.info(f"Ruta insertada con ID: {res.inserted_id}")
@@ -85,6 +114,7 @@ class FleetDAO:
             raise
 
     def get_routes(self) -> list[dict]:
+        """Recupera el historial de rutas planificadas."""
         try:
             return list(self._routes.find())
         except PyMongoError as e:
@@ -93,17 +123,30 @@ class FleetDAO:
 
     # --- Telemetry ---
     def add_telemetry(self, telemetry: Telemetry) -> str:
+        """
+        Registra una lectura de telemetría IoT del vehículo.
+        Maneja silenciosamente colisiones de timestamp (DuplicateKeyError) para
+        garantizar idempotencia si los sensores reintentan el envío.
+        """
         try:
             res = self._telemetry.insert_one(telemetry.to_dict())
             return str(res.inserted_id)
         except DuplicateKeyError:
-            logger.warning(f"Dato duplicado del camion {telemetry.truck_id}")
+            logger.warning(f"Evento de telemetría duplicado descartado para el camión {telemetry.truck_id}")
             raise
         except PyMongoError as e:
-            logger.error(f"Error insertando telemetría: {e}")
+            logger.error(f"Error insertando evento de telemetría: {e}")
             raise
 
     def get_telemetry(self, truck_id: str, desde=None, hasta=None) -> list[dict]:
+        """
+        Recupera la serie temporal de telemetría de un camión.
+        
+        Args:
+            truck_id (str): Identificador del vehículo.
+            desde (datetime, optional): Límite inferior de la ventana de tiempo.
+            hasta (datetime, optional): Límite superior de la ventana de tiempo.
+        """
         try:
             query = {"truck_id": truck_id}
             if desde or hasta:
@@ -115,10 +158,14 @@ class FleetDAO:
                     
             return list(self._telemetry.find(query).sort("timestamp", 1))
         except PyMongoError as e:
-            logger.error(f"Error obteniendo telemetría: {e}")
+            logger.error(f"Error obteniendo telemetría temporal: {e}")
             return []
 
     def get_telemetry_near(self, truck_id: str, lon: float, lat: float, max_distance_meters: float) -> list[dict]:
+        """
+        Ejecuta una consulta espacial `$near` utilizando el índice `2dsphere`.
+        Detecta si un camión emitió lecturas en un radio determinado de una coordenada.
+        """
         try:
             query = {
                 "truck_id": truck_id,
@@ -134,12 +181,14 @@ class FleetDAO:
             }
             return list(self._telemetry.find(query))
         except PyMongoError as e:
-            logger.error(f"Error en búsqueda geoespacial: {e}")
+            logger.error(f"Error en evaluación geoespacial por radio: {e}")
             return []
 
     def get_truck_statistics(self, truck_id: str) -> dict:
-        # Agrupa los datos en la bd y saca el promedio de velocidad y gasolina
-        # Asi evitamos procesar todo en python
+        """
+        Delega el cálculo analítico al motor de base de datos utilizando MongoDB Aggregation Pipelines.
+        Evita procesar grandes volúmenes de datos en la capa de aplicación.
+        """
         try:
             pipeline = [
                 {"$match": {"truck_id": truck_id}},
@@ -156,22 +205,25 @@ class FleetDAO:
                 return result[0]
             return {}
         except PyMongoError as e:
-            logger.error(f"Error en agregación estadística: {e}")
+            logger.error(f"Error durante agregación estadística: {e}")
             return {}
 
     # --- Geofences ---
     def add_geofence(self, geofence: Geofence) -> str:
+        """Registra un nuevo polígono espacial de autorización (Geocerca)."""
         try:
             res = self._geofences.insert_one(geofence.to_dict())
-            logger.info(f"Geocerca insertada con ID: {res.inserted_id}")
+            logger.info(f"Geocerca espacial insertada con ID: {res.inserted_id}")
             return str(res.inserted_id)
         except PyMongoError as e:
             logger.error(f"Error insertando geocerca: {e}")
             raise
 
     def get_telemetry_in_polygon(self, truck_id: str, polygon: list[list[float]]) -> list[dict]:
-        # Busca usando $geoWithin si el camion estuvo dentro de un poligono (geocerca)
-        # Esto supera a SAVIA porque aplicamos $geoWithin sobre telemetria en movimiento
+        """
+        Implementa validación de trayectoria contra límites espaciales utilizando `$geoWithin`.
+        Recupera toda la telemetría del camión contenida exclusivamente dentro del polígono delimitado.
+        """
         try:
             query = {
                 "truck_id": truck_id,
@@ -186,5 +238,5 @@ class FleetDAO:
             }
             return list(self._telemetry.find(query))
         except PyMongoError as e:
-            logger.error(f"Error en búsqueda por polígono: {e}")
+            logger.error(f"Error procesando límites de geocerca por polígono: {e}")
             return []

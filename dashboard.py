@@ -30,6 +30,10 @@ else:
     else:
         df = pd.DataFrame(telemetry)
         
+        if 'location' in df.columns:
+            df['lon'] = df['location'].apply(lambda x: x['coordinates'][0] if isinstance(x, dict) else None)
+            df['lat'] = df['location'].apply(lambda x: x['coordinates'][1] if isinstance(x, dict) else None)
+        
         # Estadisticas rapidas
         st.subheader("Estadísticas de Telemetría")
         col1, col2, col3 = st.columns(3)
