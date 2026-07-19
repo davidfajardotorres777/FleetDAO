@@ -1,0 +1,13 @@
+services:
+  mongodb:
+    image: mongo:4.4
+    container_name: fleet_mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - fleet_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: fleet_db
+
+volumes:
+  fleet_data:
