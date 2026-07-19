@@ -1,4 +1,10 @@
+fastapi
+uvicorn
+pydantic
+python-dotenv
 pymongo
 pandas
 jupyter
 nbformat
+folium
+matplotlib
