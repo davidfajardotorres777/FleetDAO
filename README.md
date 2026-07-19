@@ -77,7 +77,7 @@ DB_NAME=fleet_db
 
 **Paso 4:** Levantar la base de datos (MongoDB).
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 **Paso 5:** Cargar los datos de prueba (Camiones y Rutas).
