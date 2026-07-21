@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>FleetDAO - Live WebSockets</title>
+    <style>
+        body { font-family: monospace; background: #121212; color: #00ff00; padding: 20px; }
+        #messages { height: 80vh; overflow-y: scroll; border: 1px solid #333; padding: 10px; }
+        .log-entry { margin-bottom: 5px; border-bottom: 1px dotted #333; padding-bottom: 5px;}
+        .alert { color: #ff3333; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>🚀 FleetDAO - Central de Recepción IoT (WebSockets)</h1>
+    <p>Conectado directamente a FastAPI. Esperando transmisión de camiones...</p>
+    <div id="messages"></div>
+
+    <script>
+        var ws = new WebSocket("ws://localhost:8000/ws/telemetry");
+        var messages = document.getElementById('messages');
+        
+        ws.onmessage = function(event) {
+            var data = JSON.parse(event.data);
+            var div = document.createElement('div');
+            div.className = 'log-entry';
+            
+            var text = `[${new Date().toLocaleTimeString()}] Camión: ${data.truck_id.substring(data.truck_id.length - 6)} | Vel: ${data.speed_kmh}km/h | Temp: ${data.engine_temp_c}°C | GPS: (${data.lat}, ${data.lon})`;
+            
+            if (data.engine_temp_c > 94) {
+                text = "⚠️ PELIGRO RECALENTAMIENTO - " + text;
+                div.className += ' alert';
+            }
+            
+            div.textContent = text;
+            messages.prepend(div);
+        };
+        
+        ws.onclose = function() {
+            var div = document.createElement('div');
+            div.textContent = "Conexión cerrada.";
+            messages.prepend(div);
+        }
+    </script>
+</body>
+</html>
