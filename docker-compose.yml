@@ -1,0 +1,83 @@
+services:
+  mongodb:
+    image: mongo:4.4
+    container_name: fleet_mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - fleet_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: fleet_db
+
+  minio:
+    image: minio/minio
+    container_name: fleet_minio
+    ports:
+      - "9002:9000"
+      - "9003:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: changeme
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+
+  redis:
+    image: redis:alpine
+    container_name: fleet_redis
+    ports:
+      - "6379:6379"
+
+  prometheus:
+    image: prom/prometheus
+    container_name: fleet_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+
+  grafana:
+    image: grafana/grafana
+    container_name: fleet_grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: fleet_api
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongodb
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017/
+      - MINIO_ENDPOINT=minio:9000
+      - REDIS_URL=redis://redis:6379/0
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: fleet_dashboard
+    ports:
+      - "8501:8501"
+    depends_on:
+      - api
+      - mongodb
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017/
+      - API_URL=http://api:8000
+
+volumes:
+  fleet_data:
+  minio_data:
