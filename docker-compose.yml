@@ -54,7 +54,8 @@ services:
     depends_on:
       - mongodb
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       - MONGO_URI=mongodb://mongodb:27017/
       - MINIO_ENDPOINT=minio:9000
@@ -71,7 +72,8 @@ services:
       - api
       - mongodb
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       - MONGO_URI=mongodb://mongodb:27017/
       - API_URL=http://api:8000

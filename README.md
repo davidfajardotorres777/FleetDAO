@@ -122,7 +122,7 @@ FleetDAO/
 ├── demo.ipynb           # Notebook de Data Science y ML
 ├── prometheus.yml       # Configuración del motor de métricas
 ├── docker-compose.yml   # Orquestación de 6 contenedores (Mongo, MinIO, Redis, Prometheus, Grafana, UI, API)
-└── libs.txt             # Dependencias del proyecto
+└── requirements.txt     # Dependencias del proyecto
 ```
 
 ---
@@ -139,11 +139,20 @@ git clone https://github.com/davidfajardotorres777/FleetDAO.git
 cd FleetDAO
 ```
 
-### Paso 2: Entorno virtual y dependencias
+### Paso 2: Crear entorno Python
+
+**Windows:**
 ```bash
-python -m venv venv
-source venv/bin/activate  # En Windows: venv\Scripts\activate
-pip install -r libs.txt
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+**Ubuntu:**
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
 ### Paso 3: Configurar variables de entorno
@@ -151,7 +160,10 @@ Crear un archivo `.env` en la raíz del proyecto con el siguiente contenido:
 ```
 MONGO_URI=mongodb://localhost:27017
 DB_NAME=fleet_db
+SECRET_KEY=cambiar-por-una-clave-propia-larga-y-aleatoria
 ```
+> Si no definís `SECRET_KEY`, la app genera una clave aleatoria en cada arranque
+> (válido para desarrollo, pero invalida las sesiones activas al reiniciar).
 
 ### Paso 4: Base de Datos y Poblado
 Asegúrese de levantar todos los microservicios (MongoDB, Redis, MinIO, Prometheus, Grafana) antes de inyectar los datos:
@@ -161,18 +173,17 @@ python setup_db.py
 python seed.py
 ```
 
-### Paso 5: Visualización Web (Dashboard)
-Para abrir la interfaz gráfica interactiva y visualizar las geocercas y la telemetría en tiempo real:
-```bash
-streamlit run dashboard.py
-```
-
-### Paso 6: Probar la API y Monitoreo
-Si quieres probar los endpoints a mano:
+### Paso 5: Iniciar la API Backend
+Para iniciar el servidor backend que procesa las peticiones y el modelo de ML:
 ```bash
 uvicorn main:app --reload
-# Entrar a: http://localhost:8000/docs
-# Grafana (para ver las métricas): http://localhost:3000
+```
+*(Mantené esta ventana abierta. Documentación interactiva en http://localhost:8000/docs — métricas en Grafana: http://localhost:3000)*
+
+### Paso 6: Visualización Web (Dashboard)
+En otra terminal, ejecutá la interfaz gráfica interactiva para visualizar las geocercas y la telemetría en tiempo real:
+```bash
+streamlit run dashboard.py
 ```
 
 ### Paso 7: Simulador de Camiones

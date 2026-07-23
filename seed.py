@@ -19,27 +19,27 @@ def seed_database():
         dao._db["drivers"].delete_many({})
         dao._db["routes"].delete_many({})
         dao._db["telemetry"].delete_many({})
-        print("  ✓ Datos anteriores limpiados.\n")
+        print("  --OK-- Datos anteriores limpiados.\n")
 
     print("Insertando camiones...")
     t1_id = dao.add_truck(Truck(brand="Volvo", capacity_tons=25.5))
-    print(f"  ✓ Camión: Volvo (Capacidad: 25.5t)")
+    print(f"  --OK-- Camión: Volvo (Capacidad: 25.5t)")
     t2_id = dao.add_truck(Truck(brand="Mercedes-Benz", capacity_tons=30.0))
-    print(f"  ✓ Camión: Mercedes-Benz (Capacidad: 30.0t)")
+    print(f"  --OK-- Camión: Mercedes-Benz (Capacidad: 30.0t)")
     t3_id = dao.add_truck(Truck(brand="Scania", capacity_tons=18.0))
-    print(f"  ✓ Camión: Scania (Capacidad: 18.0t)\n")
+    print(f"  --OK-- Camión: Scania (Capacidad: 18.0t)\n")
 
     print("Insertando choferes...")
     d1_id = dao.add_driver(Driver(name="Juan Perez", license_level="A"))
-    print(f"  ✓ Chofer: Juan Perez (Licencia A)")
+    print(f"  --OK-- Chofer: Juan Perez (Licencia A)")
     d2_id = dao.add_driver(Driver(name="Maria Gonzalez", license_level="B"))
-    print(f"  ✓ Chofer: Maria Gonzalez (Licencia B)\n")
+    print(f"  --OK-- Chofer: Maria Gonzalez (Licencia B)\n")
 
     print("Insertando rutas...")
     dao.add_route(Route(origin="Buenos Aires", destination="Cordoba", truck_id=t1_id, driver_id=d1_id))
-    print("  ✓ Ruta: Buenos Aires -> Cordoba (Asignada a Juan Perez en Volvo)")
+    print("  --OK-- Ruta: Buenos Aires -> Cordoba (Asignada a Juan Perez en Volvo)")
     dao.add_route(Route(origin="Rosario", destination="Mendoza", truck_id=t2_id, driver_id=d2_id))
-    print("  ✓ Ruta: Rosario -> Mendoza (Asignada a Maria Gonzalez en Mercedes-Benz)\n")
+    print("  --OK-- Ruta: Rosario -> Mendoza (Asignada a Maria Gonzalez en Mercedes-Benz)\n")
     
     trucks = dao.get_trucks()
     if not trucks:
@@ -117,8 +117,8 @@ def seed_database():
         except DuplicateKeyError:
             pass
             
-    print(f"  ✓ {total_steps} eventos de telemetría insertados.\n")
-    print("✓ Seed completado.")
+    print(f"  --OK-- {total_steps} eventos de telemetría insertados.\n")
+    print("--OK-- Seed completado.")
     dao.close()
 
 if __name__ == "__main__":
