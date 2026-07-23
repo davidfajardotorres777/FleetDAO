@@ -218,7 +218,74 @@ REDIS_URL=redis://localhost:6379/0
    ```bash
    streamlit run dashboard.py
    ```
-   * *Dashboard:* http://localhost:8501
+   * *Dashboard visual:* http://localhost:8501
+
+---
+
+#### 📊 Guía Detallada y Ejemplos de uso del Dashboard (`dashboard.py`)
+
+##### Opciones de ejecución de Streamlit
+
+- **Ejecución Estándar:**
+  ```bash
+  streamlit run dashboard.py
+  ```
+
+- **Especificar un puerto diferente (ej. 8502 si el 8501 está ocupado):**
+  ```bash
+  streamlit run dashboard.py --server.port 8502
+  ```
+
+- **Ejecutar en servidor sin abrir automáticamente el navegador (`headless`):**
+  ```bash
+  streamlit run dashboard.py --server.headless true
+  ```
+
+- **Definir URL de la API mediante variable de entorno:**
+  ```bash
+  # Linux / macOS:
+  API_URL=http://localhost:8000 streamlit run dashboard.py
+
+  # Windows (PowerShell):
+  $env:API_URL="http://localhost:8000"; streamlit run dashboard.py
+
+  # Windows (CMD):
+  set API_URL=http://localhost:8000 && streamlit run dashboard.py
+  ```
+
+##### Componentes Visuales del Panel de Control
+
+Al abrir el Dashboard en el navegador (`http://localhost:8501`), la interfaz ofrece:
+
+1. 🚚 **Selector de Camiones (Sidebar Lateral):**
+   Filtro interactivo para seleccionar cualquier camión de la flota (ej: Volvo, Mercedes-Benz, Scania) por su ID único de MongoDB.
+
+2. 📈 **Métricas de Telemetría en Tiempo Real:**
+   - **Velocidad Promedio** (km/h)
+   - **Temperatura Máxima del Motor** (°C)
+   - **Nivel de Combustible Restante** (%)
+
+3. 🤖 **Módulo de Predicción de IA (Machine Learning):**
+   Conecta en tiempo real con el endpoint `/api/predict_temp` de FastAPI para estimar la temperatura del motor según la velocidad y RPM actuales.
+   - **Estado Normal:** Muestra una tarjeta verde `✅ Temperatura en niveles normales`.
+   - **Alerta Crítica:** Muestra una tarjeta roja `⚠️ CUIDADO: El motor podría estar por sobrecalentarse` cuando el modelo predice temperaturas críticas.
+
+4. 🗺️ **Mapa Interactivo (Folium + GeoJSON):**
+   - **Geocercas:** Dibuja en polígonos verdes traslúcidos las zonas espaciales autorizadas para circular.
+   - **Trazado de Ruta:** Muestra la trayectoria recorrida por el camión en una línea azul sobre el mapa.
+   - **Marcador en Vivo:** Ícono de camión rojo con popup interactivo indicando última posición GPS y velocidad actual.
+
+5. 📉 **Gráficos de Comportamiento:**
+   Gráfico de líneas temporal sincronizado comparando velocidad (`speed_kmh`) vs temperatura del motor (`engine_temp_c`).
+
+##### Flujo de Prueba Recomendado (En Vivo)
+
+1. En una terminal, mantené la API corriendo (`uvicorn main:app --reload`).
+2. En una segunda terminal, iniciá el Dashboard (`streamlit run dashboard.py`).
+3. En una tercera terminal, ejecutá el simulador IoT (`python simulator.py`).
+4. Observá en la pantalla del Dashboard cómo se mueven los camiones solos, cambian los gráficos y saltan las alertas predictivas de temperatura en tiempo real.
+
+---
 
 5. **Iniciar el Simulador IoT de Camiones (Opcional):** *(En otra terminal)*
    ```bash
