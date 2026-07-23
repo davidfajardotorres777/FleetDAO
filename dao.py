@@ -23,10 +23,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger("FleetDAO")
 
 class FleetDAO:
-    # Clase DAO principal para conectarse a Mongo, MinIO y Redis
+    """DAO central del sistema: centraliza el acceso a MongoDB, Redis y MinIO."""
 
     def __init__(self):
-        # conexion inicial a las bases de datos
+        """Abre las conexiones a MongoDB, Redis y MinIO al instanciar el DAO."""
         try:
             self._client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
             self._db = self._client[DB_NAME]
@@ -66,8 +66,7 @@ class FleetDAO:
 
     # --- Trucks ---
     def add_truck(self, truck: Truck) -> str:
-        # Guarda un camion nuevo en mongo
-
+        """Guarda un camión nuevo en MongoDB."""
         try:
             res = self._trucks.insert_one(truck.to_dict())
             logger.info(f"Camión insertado con ID: {res.inserted_id}")
@@ -77,7 +76,7 @@ class FleetDAO:
             raise
 
     def get_trucks(self, *, truck_id=None, brand=None) -> list[dict]:
-        # trae los camiones, si se pasan filtros los usa
+        """Obtiene camiones, con filtros opcionales por ID o marca."""
         try:
             query = {}
             if truck_id:
@@ -90,6 +89,7 @@ class FleetDAO:
             return []
 
     def update_truck(self, *, truck_id: str, update_data: dict) -> bool:
+        """Actualiza los campos de un camión existente."""
         try:
             res = self._trucks.update_one({"_id": ObjectId(truck_id)}, {"$set": update_data})
             return res.modified_count > 0
@@ -98,6 +98,7 @@ class FleetDAO:
             raise
 
     def delete_truck(self, *, truck_id: str) -> bool:
+        """Elimina un camión por su ID."""
         try:
             res = self._trucks.delete_one({"_id": ObjectId(truck_id)})
             return res.deleted_count > 0
@@ -107,7 +108,7 @@ class FleetDAO:
 
     # --- Drivers ---
     def add_driver(self, driver: Driver) -> str:
-        # guarda chofer nuevo
+        """Guarda un chofer nuevo en MongoDB."""
         try:
             res = self._drivers.insert_one(driver.to_dict())
             logger.info(f"Conductor insertado con ID: {res.inserted_id}")
@@ -117,7 +118,7 @@ class FleetDAO:
             raise
 
     def get_drivers(self, *, driver_id=None, name=None, license_level=None) -> list[dict]:
-        # buscar choferes
+        """Busca choferes, con filtros opcionales por ID, nombre o tipo de licencia."""
         try:
             query = {}
             if driver_id:
@@ -145,6 +146,7 @@ class FleetDAO:
             raise
 
     def update_driver(self, *, driver_id: str, update_data: dict) -> bool:
+        """Actualiza los campos de un chofer existente."""
         try:
             res = self._drivers.update_one({"_id": ObjectId(driver_id)}, {"$set": update_data})
             return res.modified_count > 0
@@ -153,6 +155,7 @@ class FleetDAO:
             raise
 
     def delete_driver(self, *, driver_id: str) -> bool:
+        """Elimina un chofer por su ID."""
         try:
             res = self._drivers.delete_one({"_id": ObjectId(driver_id)})
             return res.deleted_count > 0
@@ -162,8 +165,13 @@ class FleetDAO:
 
     # --- Routes ---
     def add_route(self, route: Route) -> str:
-        # asigna una ruta a un camion y chofer
+        """Asigna una ruta nueva a un camión y un chofer, validando que ambos existan."""
         try:
+            if not self._trucks.find_one({"_id": ObjectId(route.truck_id)}):
+                raise ValueError(f"No existe un camión con ID {route.truck_id}")
+            if not self._drivers.find_one({"_id": ObjectId(route.driver_id)}):
+                raise ValueError(f"No existe un chofer con ID {route.driver_id}")
+
             res = self._routes.insert_one(route.to_dict())
             logger.info(f"Ruta insertada con ID: {res.inserted_id}")
             return str(res.inserted_id)
@@ -172,7 +180,7 @@ class FleetDAO:
             raise
 
     def get_routes(self, *, route_id=None, truck_id=None, driver_id=None) -> list[dict]:
-        """Recupera rutas con filtros dinámicos por ID, camión o conductor."""
+        """Busca rutas, con filtros opcionales por ID, camión o chofer."""
         try:
             query = {}
             if route_id:
@@ -187,6 +195,7 @@ class FleetDAO:
             return []
 
     def update_route(self, *, route_id: str, update_data: dict) -> bool:
+        """Actualiza los campos de una ruta existente."""
         try:
             res = self._routes.update_one({"_id": ObjectId(route_id)}, {"$set": update_data})
             return res.modified_count > 0
@@ -195,6 +204,7 @@ class FleetDAO:
             raise
 
     def delete_route(self, *, route_id: str) -> bool:
+        """Elimina una ruta por su ID."""
         try:
             res = self._routes.delete_one({"_id": ObjectId(route_id)})
             return res.deleted_count > 0
@@ -204,8 +214,8 @@ class FleetDAO:
 
     # --- Telemetry ---
     def add_telemetry(self, telemetry: Telemetry) -> str:
-        # aca metemos la lectura del sensor
-        # el indice unico (truck_id + timestamp) evita duplicados si el camion manda dos veces lo mismo
+        """Guarda una lectura de telemetría. El índice único (truck_id + timestamp)
+        evita duplicados si el camión reenvía el mismo dato."""
         try:
             data = telemetry.to_dict()
             res = self._telemetry.insert_one(data)
@@ -235,14 +245,8 @@ class FleetDAO:
             raise
 
     def get_telemetry(self, truck_id: str, desde=None, hasta=None) -> list[dict]:
-        """
-        Recupera la serie temporal de telemetría de un camión.
-        
-        Args:
-            truck_id (str): Identificador del vehículo.
-            desde (datetime, optional): Límite inferior de la ventana de tiempo.
-            hasta (datetime, optional): Límite superior de la ventana de tiempo.
-        """
+        """Recupera la serie temporal de telemetría de un camión, opcionalmente
+        acotada por un rango de fechas (desde/hasta)."""
         try:
             query = {"truck_id": truck_id}
             if desde or hasta:
@@ -271,10 +275,8 @@ class FleetDAO:
             return {}
 
     def get_telemetry_near(self, truck_id: str, lon: float, lat: float, max_distance_meters: float) -> list[dict]:
-        """
-        Ejecuta una consulta espacial `$near` utilizando el índice `2dsphere`.
-        Detecta si un camión emitió lecturas en un radio determinado de una coordenada.
-        """
+        """Busca lecturas de telemetría dentro de un radio determinado de una coordenada
+        (usa el índice geoespacial 2dsphere)."""
         try:
             query = {
                 "truck_id": truck_id,
@@ -294,7 +296,8 @@ class FleetDAO:
             return []
 
     def get_truck_statistics(self, truck_id: str) -> dict:
-        # armamos un pipeline de mongo para sacar promedios y maximos mas rapido
+        """Calcula estadísticas (velocidad promedio, temp máxima, etc.) usando un
+        pipeline de agregación de MongoDB."""
         try:
             pipeline = [
                 {"$match": {"truck_id": truck_id}},
@@ -334,10 +337,8 @@ class FleetDAO:
             raise
 
     def get_telemetry_in_polygon(self, truck_id: str, polygon: list[list[float]]) -> list[dict]:
-        """
-        Implementa validación de trayectoria contra límites espaciales utilizando `$geoWithin`.
-        Recupera toda la telemetría del camión contenida exclusivamente dentro del polígono delimitado.
-        """
+        """Recupera la telemetría de un camión que cae dentro de un polígono
+        (geocerca), usando el operador $geoWithin de MongoDB."""
         try:
             query = {
                 "truck_id": truck_id,

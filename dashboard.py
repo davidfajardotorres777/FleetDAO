@@ -37,6 +37,9 @@ else:
         if 'location' in df.columns:
             df['lon'] = df['location'].apply(lambda x: x['coordinates'][0] if isinstance(x, dict) else None)
             df['lat'] = df['location'].apply(lambda x: x['coordinates'][1] if isinstance(x, dict) else None)
+        else:
+            df['lon'] = None
+            df['lat'] = None
         
         # Estadisticas rapidas
         st.subheader("Estadísticas de Telemetría")
@@ -66,44 +69,48 @@ else:
             st.error(f"El backend API no está corriendo. Inicie uvicorn o use docker-compose.")
         
         st.subheader("Ruta del Vehículo y Geocercas")
-        
-        start_lat = df['lat'].iloc[0]
-        start_lon = df['lon'].iloc[0]
-        
-        m = folium.Map(location=[start_lat, start_lon], zoom_start=7)
-        
-        # Dibujar geocercas (Polígonos de autorización)
-        geofences = dao.get_geofences()
-        for gf in geofences:
-            try:
-                coords = gf['geometry']['coordinates'][0] # Primer anillo del polígono
-                # Folium usa [lat, lon], GeoJSON usa [lon, lat]
-                folium_coords = [[lat, lon] for lon, lat in coords]
-                folium.Polygon(
-                    locations=folium_coords,
-                    color='green',
-                    fill=True,
-                    fill_color='lightgreen',
-                    fill_opacity=0.3,
-                    popup=gf.get('name', 'Geocerca Autorizada')
+
+        df_con_gps = df.dropna(subset=['lat', 'lon'])
+        if df_con_gps.empty:
+            st.info("Este camión todavía no tiene lecturas con coordenadas GPS.")
+        else:
+            start_lat = df_con_gps['lat'].iloc[0]
+            start_lon = df_con_gps['lon'].iloc[0]
+
+            m = folium.Map(location=[start_lat, start_lon], zoom_start=7)
+
+            # Dibujar geocercas (Polígonos de autorización)
+            geofences = dao.get_geofences()
+            for gf in geofences:
+                try:
+                    coords = gf['geometry']['coordinates'][0] # Primer anillo del polígono
+                    # Folium usa [lat, lon], GeoJSON usa [lon, lat]
+                    folium_coords = [[lat, lon] for lon, lat in coords]
+                    folium.Polygon(
+                        locations=folium_coords,
+                        color='green',
+                        fill=True,
+                        fill_color='lightgreen',
+                        fill_opacity=0.3,
+                        popup=gf.get('name', 'Geocerca Autorizada')
+                    ).add_to(m)
+                except Exception as e:
+                    pass
+
+            # Dibujar ruta
+            route_coords = list(zip(df_con_gps['lat'], df_con_gps['lon']))
+            if route_coords:
+                folium.PolyLine(route_coords, color="blue", weight=3, opacity=0.8).add_to(m)
+
+                # Marcador actual
+                folium.Marker(
+                    location=route_coords[-1],
+                    popup=f"Última posición\\nVelocidad: {df['speed_kmh'].iloc[-1]} km/h",
+                    icon=folium.Icon(color="red", icon="truck", prefix='fa')
                 ).add_to(m)
-            except Exception as e:
-                pass
-        
-        # Dibujar ruta
-        route_coords = list(zip(df['lat'].dropna(), df['lon'].dropna()))
-        if route_coords:
-            folium.PolyLine(route_coords, color="blue", weight=3, opacity=0.8).add_to(m)
-            
-            # Marcador actual
-            folium.Marker(
-                location=route_coords[-1],
-                popup=f"Última posición\\nVelocidad: {df['speed_kmh'].iloc[-1]} km/h",
-                icon=folium.Icon(color="red", icon="truck", prefix='fa')
-            ).add_to(m)
-        
-        st_folium(m, width=1200, height=500)
-        
+
+            st_folium(m, width=1200, height=500)
+
         # Graficos
         st.subheader("Gráficos de Comportamiento")
         st.line_chart(df.set_index('timestamp')[['speed_kmh', 'engine_temp_c']])

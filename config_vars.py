@@ -1,5 +1,4 @@
 import os
-import os
 from dotenv import load_dotenv
 
 # Cargo las variables de entorno desde el .env

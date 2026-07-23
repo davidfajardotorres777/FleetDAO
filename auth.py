@@ -5,8 +5,21 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 import os
+import secrets
+import logging
 
-SECRET_KEY = os.getenv("SECRET_KEY", "un_secreto_super_seguro_para_fleetdao")
+logger = logging.getLogger("FleetDAO")
+
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    # No hardcodeamos un secreto: si falta en el .env, generamos uno aleatorio
+    # por ejecución. Esto invalida los tokens existentes en cada reinicio, pero
+    # evita firmar JWT con una clave conocida y pública.
+    SECRET_KEY = secrets.token_hex(32)
+    logger.warning(
+        "SECRET_KEY no configurado en .env — se generó uno aleatorio para esta sesión. "
+        "Definilo en .env para producción (los tokens no persistirán entre reinicios)."
+    )
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 

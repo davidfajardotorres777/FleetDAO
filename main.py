@@ -42,11 +42,14 @@ class ConnectionManager:
         self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
+        dead_connections = []
         for connection in self.active_connections:
             try:
                 await connection.send_json(message)
             except Exception:
-                pass
+                dead_connections.append(connection)
+        for dead in dead_connections:
+            self.disconnect(dead)
 
 manager = ConnectionManager()
 
@@ -83,7 +86,7 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/api/trucks", response_model=dict)
-def register_truck(truck: Truck):
+def register_truck(truck: Truck, current_user: str = Depends(get_current_user)):
     try:
         truck_id = dao.add_truck(truck)
         return {"inserted_id": truck_id}
@@ -161,7 +164,10 @@ def get_latest_telemetry_cache(truck_id: str):
 @app.post("/api/predict_temp")
 def predict_temperature(speed_kmh: float, engine_rpm: int):
     # ML que predice si el camion se va a recalentar
-    predicted_temp = ml_predictor.predict_temperature(speed_kmh, engine_rpm)
+    try:
+        predicted_temp = ml_predictor.predict_temperature(speed_kmh, engine_rpm)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     alerta_recalentamiento = predicted_temp > 95.0
     return {
         "speed_kmh": speed_kmh,
@@ -171,7 +177,7 @@ def predict_temperature(speed_kmh: float, engine_rpm: int):
     }
 
 @app.post("/api/drivers", response_model=dict)
-def register_driver(driver: Driver):
+def register_driver(driver: Driver, current_user: str = Depends(get_current_user)):
     try:
         driver_id = dao.add_driver(driver)
         return {"inserted_id": driver_id}
@@ -206,7 +212,7 @@ def delete_driver(driver_id: str, current_user: str = Depends(get_current_user))
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/drivers/{driver_id}/license")
-async def upload_driver_license(driver_id: str, file: UploadFile = File(...)):
+async def upload_driver_license(driver_id: str, file: UploadFile = File(...), current_user: str = Depends(get_current_user)):
     # Sube la foto del carnet de conducir a MinIO
     try:
         drivers = dao.get_drivers(driver_id=driver_id)
@@ -230,10 +236,12 @@ async def upload_driver_license(driver_id: str, file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/routes", response_model=dict)
-def register_route(route: Route):
+def register_route(route: Route, current_user: str = Depends(get_current_user)):
     try:
         route_id = dao.add_route(route)
         return {"inserted_id": route_id}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

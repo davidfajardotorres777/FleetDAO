@@ -12,8 +12,8 @@ class Geofence(BaseModel):
             "truck_id": self.truck_id,
             "geometry": {
                 "type": "Polygon",
-                # Mongo requires the polygon to be an array of arrays of coordinates
-                # and the first and last coordinate must be the same to close the ring
+                # Mongo pide el polígono como un array de arrays de coordenadas,
+                # y la primera y última coordenada deben coincidir para cerrar el anillo
                 "coordinates": [self.polygon]
             }
         }

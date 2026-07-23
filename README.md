@@ -104,7 +104,7 @@ Para que la base de datos no se ponga lenta cuando hay muchos datos, creé un pa
 
 ---
 
-## 4. Estructura del Proyecto
+## 5. Estructura del Proyecto
 
 ```text
 FleetDAO/
@@ -127,7 +127,7 @@ FleetDAO/
 
 ---
 
-## 5. Guía de Instalación y Despliegue
+## 6. Guía de Instalación y Despliegue
 
 ### Requisitos previos
 - Python 3.12+

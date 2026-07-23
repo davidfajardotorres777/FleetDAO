@@ -51,9 +51,10 @@ def simulate():
             # Simulamos que a más velocidad, más revoluciones
             rpm = int(state[t_id]["speed"] * random.uniform(25, 30))
             
-            # Forzamos un recalentamiento si la velocidad es muy alta (para activar la alerta predictiva de la IA)
+            # Forzamos un recalentamiento si la velocidad es muy alta (para activar la alerta predictiva del modelo)
             if state[t_id]["speed"] > 105:
-                state[t_id]["temp"] += random.uniform(0.5, 2.0) # Recalentamiento!
+                # Techo en 148 para no pisar el límite de validación (150) de Telemetry
+                state[t_id]["temp"] = min(148, state[t_id]["temp"] + random.uniform(0.5, 2.0))
             else:
                 state[t_id]["temp"] = max(80, min(94, state[t_id]["temp"] - random.uniform(0.1, 1.0)))
                 
@@ -74,6 +75,8 @@ def simulate():
                 res = requests.post(f"{API_URL}/api/telemetry", json=telemetry)
                 if res.status_code == 200:
                     logger.info(f"🚚 Telemetría subida [Camión {t_id[-4:]}]: {telemetry['speed_kmh']} km/h | {telemetry['engine_temp_c']} °C")
+                else:
+                    logger.warning(f"La API rechazó la telemetría [Camión {t_id[-4:]}] ({res.status_code}): {res.text}")
             except Exception as e:
                 logger.error(f"Error enviando telemetría: {e}")
         
