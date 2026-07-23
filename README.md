@@ -175,20 +175,9 @@ pip install -r requirements.txt
 
 ---
 
-### Paso 3: Configurar variables de entorno
-Crear el archivo `.env` en la raíz del proyecto copiando la plantilla `.env.example`:
+### Paso 3: Variables de Entorno (.env)
+El proyecto **ya incluye el archivo `.env` configurado y listo para usar** en la raíz del repositorio con los valores por defecto para desarrollo local:
 
-**Windows (PowerShell) / Linux / macOS:**
-```bash
-cp .env.example .env
-```
-
-**Windows (CMD / Símbolo del sistema):**
-```cmd
-copy .env.example .env
-```
-
-El archivo `.env` resultante contiene las credenciales y puertos por defecto para desarrollo local:
 ```env
 MONGO_URI=mongodb://localhost:27017/
 DB_NAME=fleet_db
@@ -199,6 +188,7 @@ MINIO_SECRET_KEY=changeme
 MINIO_SECURE=false
 REDIS_URL=redis://localhost:6379/0
 ```
+*(No es necesario crear ni modificar ningún archivo; al clonar el proyecto ya queda configurado).*
 
 ---
 
