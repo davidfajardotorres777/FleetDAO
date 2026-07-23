@@ -91,6 +91,11 @@ Colección principal del sistema. Almacena registros periódicos de los sensores
 | lat | Float | Latitud geográfica | Sí |
 | location | GeoJSON | Punto 2D geográfico (calculado automáticamente) | Sí |
 
+> **Nota:** en `dbscripts.sql` está el modelo relacional equivalente, pensado en la
+> etapa de diseño inicial. Se migró a MongoDB porque para telemetría IoT de alta
+> frecuencia (muchas escrituras por segundo, esquema flexible) un modelo de
+> documentos rinde mejor que uno relacional normalizado.
+
 ---
 
 ## 4. Índices
@@ -114,14 +119,23 @@ FleetDAO/
 ├── dao.py               # Data Access Object (Conexión MongoDB, Redis y MinIO)
 ├── main.py              # Endpoints FastAPI y WebSockets
 ├── auth.py              # Seguridad, Encriptación y JWT
-├── ml_service.py        # Microservicio de IA en producción
+├── config_vars.py       # Carga de variables de entorno (.env)
+├── ml_service.py        # Microservicio de ML en producción
+├── train_model.py       # Entrenamiento del modelo predictivo (Scikit-Learn)
 ├── dashboard.py         # Interfaz Web interactiva (Streamlit + Folium)
 ├── simulator.py         # Simulador concurrente de hardware IoT (Camiones)
 ├── backup.py            # Script DevOps de respaldos automáticos hacia MinIO
+├── setup_db.py          # Creación de índices y colecciones en MongoDB
 ├── seed.py              # Script de poblado inicial de datos sintéticos
+├── build_notebook.py    # Genera dao_consultas.ipynb de forma programática
+├── dao_consultas.ipynb  # Notebook de consultas sobre el patrón DAO
 ├── demo.ipynb           # Notebook de Data Science y ML
+├── dbscripts.sql        # Modelo relacional equivalente (etapa de diseño, no usado en runtime)
+├── Dockerfile.api        # Imagen de la API (FastAPI)
+├── Dockerfile.dashboard  # Imagen del Dashboard (Streamlit)
 ├── prometheus.yml       # Configuración del motor de métricas
-├── docker-compose.yml   # Orquestación de 6 contenedores (Mongo, MinIO, Redis, Prometheus, Grafana, UI, API)
+├── docker-compose.yml   # Orquestación de 7 contenedores (Mongo, MinIO, Redis, Prometheus, Grafana, API, Dashboard)
+├── .env.example         # Plantilla de variables de entorno
 └── requirements.txt     # Dependencias del proyecto
 ```
 
@@ -130,8 +144,10 @@ FleetDAO/
 ## 6. Guía de Instalación y Despliegue
 
 ### Requisitos previos
-- Python 3.12+
-- Docker Engine
+- **Python**: Version 3.10, 3.11 o 3.12
+- **Docker & Docker Desktop** (o Docker Engine con plugin compose)
+
+---
 
 ### Paso 1: Clonar el repositorio
 ```bash
@@ -139,70 +155,102 @@ git clone https://github.com/davidfajardotorres777/FleetDAO.git
 cd FleetDAO
 ```
 
-### Paso 2: Crear entorno Python
+---
+
+### Paso 2: Crear el entorno virtual e instalar dependencias
 
 **Windows:**
 ```bash
-python -m venv .venv
-.\.venv\Scripts\activate
+python -m venv venv
+.\venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-**Ubuntu:**
+**Linux / macOS:**
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
+
+---
 
 ### Paso 3: Configurar variables de entorno
-Crear un archivo `.env` en la raíz del proyecto con el siguiente contenido:
+Crear el archivo `.env` en la raíz del proyecto copiando la plantilla `.env.example`:
+
+**Windows (PowerShell) / Linux / macOS:**
+```bash
+cp .env.example .env
 ```
-MONGO_URI=mongodb://localhost:27017
+
+**Windows (CMD / Símbolo del sistema):**
+```cmd
+copy .env.example .env
+```
+
+El archivo `.env` resultante contiene las credenciales y puertos por defecto para desarrollo local:
+```env
+MONGO_URI=mongodb://localhost:27017/
 DB_NAME=fleet_db
-SECRET_KEY=cambiar-por-una-clave-propia-larga-y-aleatoria
-```
-> Si no definís `SECRET_KEY`, la app genera una clave aleatoria en cada arranque
-> (válido para desarrollo, pero invalida las sesiones activas al reiniciar).
-
-### Paso 4: Base de Datos y Poblado
-Asegúrese de levantar todos los microservicios (MongoDB, Redis, MinIO, Prometheus, Grafana) antes de inyectar los datos:
-```bash
-docker compose up -d
-python setup_db.py
-python seed.py
+SECRET_KEY=clave-secreta-para-jwt-super-segura-12345
+MINIO_ENDPOINT=localhost:9002
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=changeme
+MINIO_SECURE=false
+REDIS_URL=redis://localhost:6379/0
 ```
 
-### Paso 5: Iniciar la API Backend
-Para iniciar el servidor backend que procesa las peticiones y el modelo de ML:
-```bash
-uvicorn main:app --reload
-```
-*(Mantené esta ventana abierta. Documentación interactiva en http://localhost:8000/docs — métricas en Grafana: http://localhost:3000)*
+---
 
-### Paso 6: Visualización Web (Dashboard)
-En otra terminal, ejecutá la interfaz gráfica interactiva para visualizar las geocercas y la telemetría en tiempo real:
-```bash
-streamlit run dashboard.py
-```
+### Paso 4: Inicialización y Ejecución Paso a Paso
 
-### Paso 7: Simulador de Camiones
-Para ver cómo se mueven los camiones solos en el mapa, abre otra consola y corre:
-```bash
-python simulator.py
-```
-*(Déjala abierta mientras miras el Dashboard).*
+1. **Levantar las Bases de Datos e Infraestructura (Docker):**
+   ```bash
+   docker compose up -d mongodb redis minio
+   ```
+   *(Nota: Se levantan los servicios de datos e infraestructura en segundo plano).*
 
-### Paso 8: Pruebas Automatizadas (TDD)
-Ejecuta la suite de pruebas unitarias sobre tu API y tu DAO:
+2. **Inicializar colecciones, índices geoespaciales y poblar con datos de prueba:**
+   ```bash
+   python setup_db.py
+   python seed.py
+   ```
+
+3. **Iniciar la API Backend (FastAPI):**
+   ```bash
+   uvicorn main:app --reload
+   ```
+   * *API Root:* http://localhost:8000
+   * *Documentación interactiva Swagger UI:* http://localhost:8000/docs
+   * *Métricas en Grafana:* http://localhost:3000
+
+4. **Iniciar el Dashboard Web Interactivo (Streamlit):** *(En otra terminal)*
+   ```bash
+   streamlit run dashboard.py
+   ```
+   * *Dashboard:* http://localhost:8501
+
+5. **Iniciar el Simulador IoT de Camiones (Opcional):** *(En otra terminal)*
+   ```bash
+   python simulator.py
+   ```
+   *(Genera movimiento de camiones, variaciones de velocidad y datos de telemetría en tiempo real).*
+
+---
+
+### Paso 5: Pruebas Automatizadas (Pytest)
+Para ejecutar la suite completa de pruebas unitarias sobre el DAO y los endpoints de la API:
 ```bash
 pytest -v
 ```
 
-### Paso 9: Cuadernos Jupyter (Demostración y DAO)
-Para explorar el análisis predictivo de Machine Learning y las consultas del patrón DAO directamente en un entorno interactivo:
+---
+
+### Paso 6: Cuadernos Jupyter (Examen y Demostración)
+Para abrir el cuaderno interactivo de consultas DAO o el de Data Science y Machine Learning:
+
 ```bash
-jupyter notebook
+jupyter notebook dao_consultas.ipynb
 ```
-Esto abrirá tu navegador. Desde allí puedes ejecutar `demo.ipynb` o `dao_consultas.ipynb`.
+Desde la interfaz web de Jupyter que se abre en el navegador, podrás explorar e interactuar tanto con `dao_consultas.ipynb` como con `demo.ipynb`.
 
