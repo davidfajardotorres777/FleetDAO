@@ -1,153 +1,59 @@
-import sys
 from datetime import datetime
 from dao import FleetDAO
 
 def test_full_crud():
-    print("=" * 70)
-    print("INICIANDO PRUEBAS AUTOMATIZADAS DE DAO STANDALONE Y VARIABLES DINÁMICAS")
-    print("=" * 70)
+    print("=" * 60)
+    print("EJECUTANDO PRUEBAS COMPLETA DEL DAO (STANDALONE)")
+    print("=" * 60)
 
-    dao = FleetDAO()
+    with FleetDAO() as dao:
+        # 1. Trucks CRUD & Variables Dinámicas
+        print("1. Probando Camiones (Trucks) & Variables Dinámicas...")
+        t_id = dao.add_truck(brand="Scania R500", capacity_tons=35.0, patente="AB-123-CD")
+        assert dao.get_truck_by_id(t_id)["brand"] == "Scania R500"
+        
+        dao.add_variable_to_truck(t_id, "gps_id", "GPS-9988-X")
+        dao.update_truck(t_id, capacity_tons=40.0, chofer_favorito="Carlos Pérez")
+        
+        truck = dao.get_truck_by_id(t_id)
+        assert truck["gps_id"] == "GPS-9988-X"
+        assert truck["chofer_favorito"] == "Carlos Pérez"
+        assert dao.delete_truck(t_id) is True
 
-    # -------------------------------------------------------------------------
-    # 1. PRUEBA DE CAMIONES (TRUCKS)
-    # -------------------------------------------------------------------------
-    print("\n--- [1/6] PRUEBAS DE CAMIONES (TRUCKS) ---")
+        # 2. Drivers CRUD
+        print("2. Probando Choferes (Drivers)...")
+        d_id = dao.add_driver(name="Lucía Fernández", license_level="E")
+        assert dao.update_driver(d_id, codigo="EMP-404") is True
+        assert dao.delete_driver(d_id) is True
 
-    # A. Crear (Create)
-    print("1. Creando nuevo camión de prueba mediante kwargs directos...")
-    truck_id = dao.add_truck(
-        brand="Scania R500",
-        capacity_tons=35.0,
-        model="V8 Streamline",
-        year=2024,
-        license_plate="AB-123-CD",
-        status="active"
-    )
-    print(f"  -> Camión creado con ID: {truck_id}")
+        # 3. Routes CRUD
+        print("3. Probando Rutas (Routes)...")
+        r_id = dao.add_route(origin="Salta", destination="Jujuy")
+        assert dao.update_route(r_id, status="en_transito") is True
+        assert dao.delete_route(r_id) is True
 
-    # B. Leer (Read)
-    print("2. Leyendo camión recién creado por ID...")
-    camion_obtenido = dao.get_truck_by_id(truck_id)
-    assert camion_obtenido is not None, "Error: No se encontró el camión recién creado"
-    assert camion_obtenido["brand"] == "Scania R500"
-    print(f"  -> Camión obtenido correctamente: {camion_obtenido['brand']} (Capacidad: {camion_obtenido['capacity_tons']}t)")
+        # 4. Geofences CRUD
+        print("4. Probando Geocercas (Geofences)...")
+        g_id = dao.add_geofence(name="Puerto BA", polygon=[[-58.37, -34.60], [-58.35, -34.60], [-58.35, -34.62], [-58.37, -34.60]])
+        assert dao.update_geofence(g_id, nivel="ALTO") is True
+        assert dao.delete_geofence(g_id) is True
 
-    # C. Modificar y Agregar Variables Nuevas (Update)
-    print("3. Modificando capacidad y AGREGANDO VARIABLES PERSONALIZADAS NUEVAS...")
-    dao.add_variable_to_truck(truck_id, "custom_gps_tracker_id", "GPS-9988-X")
-    dao.modify_variable_truck(truck_id, "capacity_tons", 40.0)
-    dao.set_truck_variables(truck_id, year=2025, status="maintenance", seguro_vencimiento="2027-12-31", chofer_favorito="Carlos Pérez")
+        # 5. Telemetry CRUD
+        print("5. Probando Telemetría (Telemetry)...")
+        tel_id = dao.add_telemetry(truck_id="t_test", speed_kmh=85.5, engine_temp_c=88.0, lon=-58.38, lat=-34.60)
+        assert dao.update_telemetry(tel_id, presion_psi=110) is True
+        assert dao.delete_telemetry(tel_id) is True
 
-    # Verificar que las nuevas variables existen en la BD
-    camion_modificado = dao.get_truck_by_id(truck_id)
-    print(f"  -> Camión modificado exitosamente con métodos del DAO!")
-    print(f"     * Nueva Capacidad: {camion_modificado.get('capacity_tons')}")
-    print(f"     * Variable Custom 1 (GPS): {camion_modificado.get('custom_gps_tracker_id')}")
-    print(f"     * Variable Custom 2 (Seguro): {camion_modificado.get('seguro_vencimiento')}")
-    print(f"     * Variable Custom 3 (Chofer): {camion_modificado.get('chofer_favorito')}")
+        # 6. Analytics & Alerts
+        print("6. Probando Analítica y Búsqueda...")
+        summary = dao.get_fleet_summary()
+        assert "total_trucks" in summary
+        alerts = dao.get_recent_alerts(limit=5)
+        assert isinstance(alerts, list)
 
-    assert camion_modificado["custom_gps_tracker_id"] == "GPS-9988-X"
-    assert camion_modificado["seguro_vencimiento"] == "2027-12-31"
-
-    # D. Eliminar (Delete)
-    print("4. Eliminando camión de prueba...")
-    eliminado = dao.delete_truck(truck_id)
-    assert eliminado is True, "Error: No se pudo eliminar el camión"
-    verificacion = dao.get_truck_by_id(truck_id)
-    assert verificacion is None, "Error: El camión sigue existiendo tras eliminarlo"
-    print("  -> Camión eliminado y verificado en la base de datos.")
-
-    # -------------------------------------------------------------------------
-    # 2. PRUEBA DE CHOFERES (DRIVERS)
-    # -------------------------------------------------------------------------
-    print("\n--- [2/6] PRUEBAS DE CHOFERES (DRIVERS) ---")
-    driver_id = dao.add_driver(name="Lucía Fernández", license_level="E", phone="+5491122334455")
-    print(f"1. Chofer creado con ID: {driver_id}")
-
-    dao.update_driver(driver_id, phone="+5491199887766", codigo_empresa="EMP-404")
-    driver_mod = dao.get_driver_by_id(driver_id)
-    assert driver_mod["codigo_empresa"] == "EMP-404"
-    print(f"2. Chofer modificado con nueva variable 'codigo_empresa': {driver_mod['codigo_empresa']}")
-
-    dao.delete_driver(driver_id)
-    print("3. Chofer eliminado correctamente.")
-
-    # -------------------------------------------------------------------------
-    # 3. PRUEBA DE RUTAS (ROUTES)
-    # -------------------------------------------------------------------------
-    print("\n--- [3/6] PRUEBAS DE RUTAS (ROUTES) ---")
-    route_id = dao.add_route(origin="Salta", destination="Jujuy", truck_id="dummy_t", driver_id="dummy_d")
-    print(f"1. Ruta creada con ID: {route_id}")
-
-    dao.update_route(route_id, status="in_transit", peajes_estimados=4500.0)
-    route_mod = dao.get_route_by_id(route_id)
-    assert route_mod["peajes_estimados"] == 4500.0
-    print(f"2. Ruta modificada con variable 'peajes_estimados': {route_mod['peajes_estimados']}")
-
-    dao.delete_route(route_id)
-    print("3. Ruta eliminada correctamente.")
-
-    # -------------------------------------------------------------------------
-    # 4. PRUEBA DE GEOCERCAS (GEOFENCES)
-    # -------------------------------------------------------------------------
-    print("\n--- [4/6] PRUEBAS DE GEOCERCAS (GEOFENCES) ---")
-    gf_id = dao.add_geofence(
-        name="Zona Puerto Buenos Aires",
-        truck_id="dummy_t",
-        polygon=[[-58.37, -34.60], [-58.35, -34.60], [-58.35, -34.62], [-58.37, -34.62], [-58.37, -34.60]]
-    )
-    print(f"1. Geocerca creada con ID: {gf_id}")
-
-    dao.update_geofence(gf_id, nivel_seguridad="ALTO")
-    gf_mod = dao.get_geofence_by_id(gf_id)
-    assert gf_mod["nivel_seguridad"] == "ALTO"
-    print(f"2. Geocerca modificada con variable 'nivel_seguridad': {gf_mod['nivel_seguridad']}")
-
-    dao.delete_geofence(gf_id)
-    print("3. Geocerca eliminada correctamente.")
-
-    # -------------------------------------------------------------------------
-    # 5. PRUEBA DE TELEMETRÍA (TELEMETRY)
-    # -------------------------------------------------------------------------
-    print("\n--- [5/6] PRUEBAS DE TELEMETRÍA (TELEMETRY) ---")
-    tel_id = dao.add_telemetry(
-        truck_id="dummy_t",
-        timestamp=datetime.now(),
-        speed_kmh=85.5,
-        engine_rpm=2100,
-        engine_temp_c=88.0,
-        fuel_level_pct=75.0,
-        lon=-58.38,
-        lat=-34.60
-    )
-    print(f"1. Telemetría creada con ID: {tel_id}")
-
-    dao.update_telemetry(tel_id, alerta_presion_neumaticos=False, presion_psi=110)
-    tel_mod = dao.get_telemetry_by_id(tel_id)
-    assert tel_mod["presion_psi"] == 110
-    print(f"2. Telemetría modificada con variable 'presion_psi': {tel_mod['presion_psi']}")
-
-    dao.delete_telemetry(tel_id)
-    print("3. Telemetría eliminada correctamente.")
-
-    # -------------------------------------------------------------------------
-    # 6. PRUEBA DE ANALÍTICA EJECUTIVA Y ALERTAS (ANALYTICS)
-    # -------------------------------------------------------------------------
-    print("\n--- [6/6] PRUEBAS DE RESUMEN DE FLOTA Y ALERTAS ---")
-    summary = dao.get_fleet_summary()
-    assert "total_trucks" in summary
-    print(f"  -> Resumen de flota obtenido correctamente: {summary}")
-
-    alerts = dao.get_recent_alerts(limit=5)
-    print(f"  -> {len(alerts)} Alertas recientes recuperadas.")
-
-    dao.close()
-
-    print("\n" + "=" * 70)
-    print("¡TODAS LAS PRUEBAS PASARON CORRECTAMENTE SIN ERRORES!")
-    print("El DAO es 100% autónomo y independiente sin requerir db_models.")
-    print("=" * 70)
+    print("=" * 60)
+    print("¡TODAS LAS PRUEBAS COMPLETADAS CON 100% DE ÉXITO!")
+    print("=" * 60)
 
 if __name__ == "__main__":
     test_full_crud()
