@@ -172,6 +172,53 @@ class FleetDAO:
             logger.error(f"Error actualizando camión {truck_id}: {e}")
             raise
 
+    def add_variable_to_truck(self, truck_id: str, variable_name: str, value: Any) -> bool:
+        """
+        [AGREGAR VARIABLE PROPIA] Agrega una variable o propiedad nueva a un camión en el DAO.
+        
+        Ejemplo:
+            dao.add_variable_to_truck(camion_id, "patente", "AA-123-ZZ")
+            dao.add_variable_to_truck(camion_id, "color", "Azul")
+        """
+        return self.update_truck(truck_id, {variable_name: value})
+
+    def modify_variable_truck(self, truck_id: str, variable_name: str, value: Any) -> bool:
+        """
+        [MODIFICAR VARIABLE] Modifica el valor de cualquier variable (existente o nueva) de un camión.
+        
+        Ejemplo:
+            dao.modify_variable_truck(camion_id, "capacity_tons", 42.0)
+            dao.modify_variable_truck(camion_id, "status", "maintenance")
+        """
+        return self.update_truck(truck_id, {variable_name: value})
+
+    def set_truck_variables(self, truck_id: str, **variables) -> bool:
+        """
+        [MODIFICAR / AGREGAR MÚLTIPLES VARIABLES POR KEYWORDS]
+        
+        Ejemplo:
+            dao.set_truck_variables(camion_id, patente="AA-999-XX", anio=2026, estado="Activo")
+        """
+        return self.update_truck(truck_id, variables)
+
+    def delete_variable_from_truck(self, truck_id: str, variable_name: str) -> bool:
+        """
+        [ELIMINAR VARIABLE] Elimina un campo o variable específica de un camión usando $unset.
+        
+        Ejemplo:
+            dao.delete_variable_from_truck(camion_id, "variable_obsoleta")
+        """
+        try:
+            oid = self._to_object_id(truck_id)
+            if not oid:
+                return False
+            res = self._trucks.update_one({"_id": oid}, {"$unset": {variable_name: ""}})
+            return res.modified_count > 0
+        except PyMongoError as e:
+            logger.error(f"Error eliminando variable {variable_name} del camión {truck_id}: {e}")
+            raise
+
+
     def delete_truck(self, truck_id: str) -> bool:
         """[DELETE / ELIMINAR] Elimina un camión del sistema por su ID."""
         try:

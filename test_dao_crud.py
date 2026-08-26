@@ -37,20 +37,15 @@ def test_full_crud():
 
     # C. Modificar y Agregar Variables Nuevas (Update)
     print("3. Modificando capacidad y AGREGANDO VARIABLES PERSONALIZADAS NUEVAS...")
-    variables_nuevas = {
-        "capacity_tons": 40.0,
-        "year": 2025,
-        "status": "maintenance",
-        "custom_gps_tracker_id": "GPS-9988-X",  # <- Variable propia 1
-        "seguro_vencimiento": "2027-12-31",      # <- Variable propia 2
-        "chofer_favorito": "Carlos Pérez"        # <- Variable propia 3
-    }
-    actualizado = dao.update_truck(truck_id, variables_nuevas)
-    assert actualizado is True, "Error: Falló la actualización del camión"
+    
+    # Pruebas con métodos explícitos del DAO:
+    dao.add_variable_to_truck(truck_id, "custom_gps_tracker_id", "GPS-9988-X")
+    dao.modify_variable_truck(truck_id, "capacity_tons", 40.0)
+    dao.set_truck_variables(truck_id, year=2025, status="maintenance", seguro_vencimiento="2027-12-31", chofer_favorito="Carlos Pérez")
 
     # Verificar que las nuevas variables existen en la BD
     camion_modificado = dao.get_truck_by_id(truck_id)
-    print(f"  -> Camión modificado exitosamente!")
+    print(f"  -> Camión modificado exitosamente con métodos del DAO!")
     print(f"     * Nueva Capacidad: {camion_modificado.get('capacity_tons')}")
     print(f"     * Variable Custom 1 (GPS): {camion_modificado.get('custom_gps_tracker_id')}")
     print(f"     * Variable Custom 2 (Seguro): {camion_modificado.get('seguro_vencimiento')}")
@@ -58,6 +53,7 @@ def test_full_crud():
 
     assert camion_modificado["custom_gps_tracker_id"] == "GPS-9988-X"
     assert camion_modificado["seguro_vencimiento"] == "2027-12-31"
+
 
     # D. Eliminar (Delete)
     print("4. Eliminando camión de prueba...")
