@@ -4,15 +4,15 @@ from dao import FleetDAO
 
 app = FastAPI(
     title="FleetDAO API",
-    description="API RESTful directa y ligera para gestión de flotas y telemetría.",
-    version="3.1"
+    description="API RESTful directa y ligera basada en el patrón DAO sobre MongoDB.",
+    version="3.2"
 )
 
 dao = FleetDAO()
 
 @app.get("/", tags=["Root"])
 def root():
-    return {"status": "online", "message": "FleetDAO API v3.1", "docs": "/docs"}
+    return {"status": "online", "message": "FleetDAO API v3.2", "docs": "/docs"}
 
 # Fleet Analytics
 @app.get("/api/fleet/summary", tags=["Analytics"])
@@ -136,13 +136,22 @@ def delete_geofence(geofence_id: str):
     if not dao.delete_geofence(geofence_id): raise HTTPException(404, "Geocerca no encontrada")
     return {"status": "deleted", "deleted_id": geofence_id}
 
-# Telemetry
+# Telemetry IoT & Geo-Queries
 @app.post("/api/telemetry", status_code=201, tags=["Telemetry"])
 def receive_telemetry(data: Dict[str, Any] = Body(...)):
     return {"status": "success", "inserted_id": dao.add_telemetry(data)}
 
+@app.post("/api/telemetry/bulk", status_code=201, tags=["Telemetry"])
+def bulk_telemetry(readings: List[Dict[str, Any]] = Body(...)):
+    inserted_ids = dao.bulk_add_telemetry(readings)
+    return {"status": "success", "count": len(inserted_ids), "inserted_ids": inserted_ids}
+
 @app.get("/api/telemetry/{truck_id}", tags=["Telemetry"])
 def get_telemetry(truck_id: str): return dao.get_telemetry(truck_id)
+
+@app.get("/api/telemetry/{truck_id}/near", tags=["Telemetry"])
+def get_telemetry_near(truck_id: str, lon: float = Query(...), lat: float = Query(...), radius_m: float = Query(5000.0)):
+    return dao.get_telemetry_near(truck_id, lon, lat, radius_m)
 
 @app.get("/api/telemetry/stats/{truck_id}", tags=["Telemetry"])
 def get_truck_stats(truck_id: str):
