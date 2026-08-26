@@ -25,7 +25,7 @@ def seed_database():
     truck_id = str(trucks[0]["_id"])
     print(f"Generando telemetría de simulación para el camión {truck_id}...")
     
-    dao._telemetry.delete_many({"truck_id": truck_id})
+    dao.telemetry.delete_many({"truck_id": truck_id})
     base_time = datetime(2026, 7, 19, 8, 0, 0)
     
     start_lon, start_lat = -58.3816, -34.6037

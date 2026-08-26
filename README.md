@@ -1,98 +1,113 @@
-# FleetDAO
-### Sistema Avanzado de Gestión de Flotas y Telemetría Predictiva
+# 🚚 FleetDAO - Sistema de Gestión de Flotas y Telemetría IoT
 
-Proyecto Integrador — Bases de Datos II · 2026  
-Autor: **Alesandro David Fajardo Torres**
+[![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)](https://fastapi.tiangolo.com/)
+[![MongoDB](https://img.shields.io/badge/MongoDB-Latest-green.svg)](https://www.mongodb.com/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.30+-red.svg)](https://streamlit.io/)
 
----
-
-## 1. El Problema y la Solución
-
-Las empresas de logística y transporte pierden millones de pesos al año debido a la falta de control predictivo sobre sus flotas. El exceso de velocidad, las rutas ineficientes y los motores sobrecalentados representan gastos ocultos gigantescos. Los sistemas GPS tradicionales únicamente informan la ubicación estática del camión, pero fallan en analizar los datos mecánicos o en advertir anomalías antes de que ocurran daños severos.
-
-**FleetDAO** resuelve este problema mediante una arquitectura NoSQL orientada a la ingestión masiva de telemetría en tiempo real. Es un sistema capaz de recibir, almacenar, visualizar y analizar variables críticas (ubicación, velocidad, RPM, temperatura) utilizando modelos predictivos, operaciones CRUD flexibles e índices geoespaciales complejos.
+**FleetDAO** es una solución de arquitectura limpia y autónoma basada en el patrón **Data Access Object (DAO)** sobre **MongoDB**. Permite administrar camiones, choferes, rutas logísticas, geocercas y series temporales de telemetría IoT con **flexibilidad total para agregar o modificar cualquier variable dinámica en vivo**.
 
 ---
 
-## 2. Herramientas y Arquitectura
+## ⭐️ Características Principales
 
-* **MongoDB (4.4)**: Base de datos NoSQL principal. Seleccionada por su capacidad de procesar escrituras masivas por segundo (time-series data).
-* **Patrón DAO (Data Access Object)**: Capa de abstracción completa con soporte para todas las operaciones CRUD (Crear, Leer, Modificar/Actualizar y Eliminar) sobre 5 colecciones.
-* **Modelos Flexibles (Pydantic v2)**: Uso de `ConfigDict(extra="allow")` en las entidades de `db_models/` para permitir que el desarrollador agregue o modifique variables personalizadas arbitrarias sin restricciones de esquema.
-* **Índices Geoespaciales (`2dsphere`)**: Implementación de polígonos complejos (`$geoWithin`) y radio (`$near`) para la detección automática de violaciones de Geocercas.
-* **Aggregation Pipelines**: Uso intensivo de operaciones nativas (`$group`, `$avg`, `$max`) para trasladar la carga analítica al motor de base de datos.
-* **FastAPI & Pydantic**: Capa de API RESTful de alto rendimiento con validación estricta pero extensible.
-* **Dashboard Interactivo (Streamlit & Folium)**: Interfaz gráfica web moderna que permite a los operadores visualizar rutas y métricas en tiempo real.
-
----
-
-## 3. Estructura de la Base de Datos y Colecciones
-
-1. **trucks (Camiones):** Metadatos estáticos y variables personalizadas dinámicas (marca, patente, capacidad, año, estado, etc.).
-2. **drivers (Choferes):** Registro del personal y habilitación profesional.
-3. **routes (Rutas):** Asignación logística (origen, destino, camión, chofer, estado).
-4. **geofences (Geocercas):** Polígonos espaciales autorizados para la circulación (`GeoJSON`).
-5. **telemetry (Telemetría):** Colección de alta frecuencia con lecturas IoT (`timestamp`, velocidad, temperatura, combustible, coordenadas GeoJSON `2dsphere`).
+1. **DAO Autónomo y Standalone (`dao.py`)**:
+   - Sin dependencias de esquemas rígidos: agrega o modifica campos personalizados en vivo.
+   - Soporte para **`kwargs` directos**, **diccionarios planos** o **Context Manager (`with FleetDAO() as dao:`)**.
+2. **Consultas Analíticas Ejecutivas**:
+   - Agregaciones nativas en MongoDB para promedios de velocidad, máximos de temperatura y alertas en tiempo real.
+3. **API RESTful en FastAPI (`main.py`)**:
+   - Endpoints completos para todas las entidades y búsqueda dinámica por cualquier atributo custom.
+   - Documentación interactiva Swagger UI integrada en `/docs`.
+4. **Dashboard Web Interactivo (`dashboard.py`)**:
+   - Visualización de mapa GPS en vivo con Folium, gráficos de telemetría y gestor interactivo de variables en tiempo real.
+5. **Jupyter Notebook Interactivo (`pruebas_dao.ipynb`)**:
+   - Cuaderno ejecutado y pre-renderizado para inspeccionar el DAO celda por celda.
 
 ---
 
-## 4. Estructura del Proyecto
+## 📁 Estructura del Proyecto
 
 ```text
 FleetDAO/
-├── db_models/           # Clases Pydantic flexibles con extra="allow" (Truck, Driver, etc.)
-├── dao.py               # Data Access Object con CRUD completo y normalización de ObjectId
-├── main.py              # Endpoints de API RESTful en FastAPI (v2.0)
-├── dashboard.py         # Interfaz Web interactiva construida en Streamlit y Folium
-├── seed.py              # Script de poblado inicial de datos sintéticos
-├── test_dao_crud.py     # Suite de pruebas automatizadas para CRUD y variables dinámicas
-├── demo.ipynb           # Notebook de Data Science y entrenamiento de Machine Learning
-├── docker-compose.yml   # Contenedor de MongoDB
-└── libs.txt             # Dependencias del proyecto
+├── dao.py               # ⭐ El DAO Standalone Único (Toda la lógica de MongoDB)
+├── main.py              # API RESTful en FastAPI con Swagger UI
+├── dashboard.py         # Dashboard Web Interactivo (Streamlit + Folium)
+├── seed.py              # Poblado automático de datos de simulación
+├── pruebas_dao.ipynb    # Jupyter Notebook para pruebas e inspección interactiva
+├── config_vars.py       # Configuración de variables de entorno
+└── docker-compose.yml   # Servicio de MongoDB en Docker
 ```
 
 ---
 
-## 5. Guía de Instalación, Despliegue y Pruebas
+## 💻 Ejemplo de Uso del DAO
 
-### Requisitos previos
-- Python 3.12+
-- Docker Engine
+```python
+from dao import FleetDAO
 
-### Paso 1: Clonar el repositorio
-```bash
-git clone https://github.com/davidfajardotorres777/FleetDAO.git
-cd FleetDAO
+# Uso con Context Manager (cierre automático de conexión)
+with FleetDAO() as dao:
+
+    # 1. Crear un camión pasando variables directamente:
+    truck_id = dao.add_truck(
+        brand="Volvo FH16", 
+        capacity_tons=40.0, 
+        patente="AB-123-CD", 
+        chofer_asignado="Carlos Pérez"
+    )
+
+    # 2. Agregar o modificar variables dinámicas en tiempo real:
+    dao.add_variable_to_truck(truck_id, "gps_tracker_id", "GPS-9988-X")
+    dao.update_truck(truck_id, seguro_vencimiento="2027-12-31")
+
+    # 3. Buscar camiones por cualquier variable personalizada:
+    camiones = dao.get_trucks_by_variable("chofer_asignado", "Carlos Pérez")
+    
+    # 4. Eliminar una variable específica:
+    dao.delete_variable_from_truck(truck_id, "variable_obsoleta")
+
+    # 5. Obtener documento completo:
+    print(dao.get_truck_by_id(truck_id))
 ```
 
-### Paso 2: Entorno virtual y dependencias
-```bash
-python -m venv venv
-source venv/bin/activate  # En Windows: venv\Scripts\activate
-pip install -r libs.txt
-```
+---
 
-### Paso 3: Levantar la Base de Datos
+## 🚀 Guía de Inicio Rápido
+
+### 1. Iniciar la Base de Datos MongoDB
 ```bash
 docker compose up -d
+```
+
+### 2. Poblar Datos de Prueba
+```bash
 python seed.py
 ```
 
-### Paso 4: Ejecutar la Suite de Pruebas CRUD
-Para verificar el correcto funcionamiento del DAO y la adición dinámica de variables:
+### 3. Iniciar la API REST (FastAPI)
 ```bash
-python test_dao_crud.py
+uvicorn main:app --host 0.0.0.0 --port 8000
 ```
+> Accede a la documentación interactiva Swagger UI en: **`http://localhost:8000/docs`**
 
-### Paso 5: Visualización Web (Dashboard)
-Para abrir la interfaz gráfica interactiva:
+### 4. Iniciar el Dashboard Web (Streamlit)
 ```bash
-streamlit run dashboard.py
+streamlit run dashboard.py --server.port 8501
 ```
+> Accede al panel de control en: **`http://localhost:8501`**
 
-### Paso 6: Backend API (FastAPI Swagger)
-Para interactuar directamente con la API RESTful:
-```bash
-uvicorn main:app --reload
-# Acceda a http://localhost:8000/docs
-```
+---
+
+## 🔗 Endpoints Principales de la API REST
+
+| Método | Endpoint | Descripción |
+| :--- | :--- | :--- |
+| `GET` | `/api/fleet/summary` | Resumen ejecutivo y alertas activas de la flota |
+| `GET` | `/api/telemetry/alerts` | Lecturas con excesos de velocidad o temperatura |
+| `GET` | `/api/trucks/search?key=KEY&value=VAL` | Búsqueda dinámica de camiones por variable custom |
+| `POST` | `/api/trucks` | Registra un nuevo camión (acepta JSON dinámico) |
+| `GET` | `/api/trucks/{id}` | Obtiene los datos de un camión por ID |
+| `PUT` | `/api/trucks/{id}` | Modifica campos o agrega variables dinámicas |
+| `POST` | `/api/trucks/{id}/variables` | Agrega o modifica una variable por clave/valor |
+| `DELETE` | `/api/trucks/{id}/variables/{name}` | Elimina una variable específica de un camión |
