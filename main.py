@@ -1,238 +1,151 @@
 from fastapi import FastAPI, HTTPException, Body, Query
 from typing import List, Dict, Any
-
 from dao import FleetDAO
 
 app = FastAPI(
     title="FleetDAO API",
-    description="API RESTful directa y ligera para la gestión de flotas, choferes, rutas, geocercas y telemetría.",
+    description="API RESTful directa y ligera para gestión de flotas y telemetría.",
     version="3.1"
 )
 
-# Instancia global del DAO
 dao = FleetDAO()
 
 @app.get("/", tags=["Root"])
-def read_root():
-    return {
-        "status": "online",
-        "message": "FleetDAO API funcionando correctamente",
-        "version": "3.1",
-        "docs": "/docs"
-    }
+def root():
+    return {"status": "online", "message": "FleetDAO API v3.1", "docs": "/docs"}
 
-# =========================================================================
-# ENDPOINTS RESUMEN & ALERTAS (Executive Fleet Analytics)
-# =========================================================================
-
-@app.get("/api/fleet/summary", response_model=dict, tags=["Analytics"])
-def get_fleet_summary():
-    """Retorna un resumen ejecutivo general de la flota (totales de camiones, choferes y alertas activas)."""
+# Fleet Analytics
+@app.get("/api/fleet/summary", tags=["Analytics"])
+def fleet_summary():
     return dao.get_fleet_summary()
 
-@app.get("/api/telemetry/alerts", response_model=List[dict], tags=["Analytics"])
-def get_recent_alerts(limit: int = 10):
-    """Retorna las lecturas de telemetría con alertas de velocidad, temperatura o combustible."""
-    return dao.get_recent_alerts(limit=limit)
+@app.get("/api/telemetry/alerts", tags=["Analytics"])
+def fleet_alerts(limit: int = 10):
+    return dao.get_recent_alerts(limit)
 
-# =========================================================================
-# ENDPOINTS TRUCKS (Camiones) - CRUD COMPLETO & BÚSQUEDA DINÁMICA
-# =========================================================================
-
-@app.get("/api/trucks/search", response_model=List[dict], tags=["Trucks"])
-def search_trucks(key: str = Query(..., description="Nombre de la variable o campo"), value: str = Query(..., description="Valor buscado")):
-    """Búsqueda dinámica de camiones por el valor de cualquier variable o atributo personalizado."""
+# Trucks CRUD & Dynamic Search
+@app.get("/api/trucks/search", tags=["Trucks"])
+def search_trucks(key: str = Query(...), value: str = Query(...)):
     return dao.get_trucks_by_variable(key, value)
 
-@app.post("/api/trucks", response_model=dict, status_code=201, tags=["Trucks"])
-def create_truck(truck_data: Dict[str, Any] = Body(..., examples=[{"brand": "Volvo", "capacity_tons": 28.0, "patente": "AA-123-ZZ"}])):
-    """Crea un nuevo camión. Acepta cualquier propiedad o variable personalizada en el JSON."""
-    try:
-        truck_id = dao.add_truck(truck_data)
-        return {"status": "created", "inserted_id": truck_id}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error creando camión: {str(e)}")
+@app.post("/api/trucks", status_code=201, tags=["Trucks"])
+def create_truck(data: Dict[str, Any] = Body(...)):
+    return {"status": "created", "inserted_id": dao.add_truck(data)}
 
-@app.get("/api/trucks", response_model=List[dict], tags=["Trucks"])
+@app.get("/api/trucks", tags=["Trucks"])
 def list_trucks():
-    """Retorna la lista de todos los camiones registrados."""
     return dao.get_trucks()
 
-@app.get("/api/trucks/{truck_id}", response_model=dict, tags=["Trucks"])
+@app.get("/api/trucks/{truck_id}", tags=["Trucks"])
 def get_truck(truck_id: str):
-    """Obtiene un camión por su ID."""
-    truck = dao.get_truck_by_id(truck_id)
-    if not truck:
-        raise HTTPException(status_code=404, detail=f"Camión con ID {truck_id} no encontrado")
-    return truck
+    doc = dao.get_truck_by_id(truck_id)
+    if not doc: raise HTTPException(404, "Camión no encontrado")
+    return doc
 
-@app.put("/api/trucks/{truck_id}", response_model=dict, tags=["Trucks"])
-@app.patch("/api/trucks/{truck_id}", response_model=dict, tags=["Trucks"])
-def update_truck(truck_id: str, update_data: Dict[str, Any] = Body(...)):
-    """Modifica un camión o agrega variables nuevas dinámicamente."""
-    success = dao.update_truck(truck_id, update_data)
-    if not success:
-        raise HTTPException(status_code=404, detail=f"No se pudo actualizar el camión {truck_id}")
+@app.put("/api/trucks/{truck_id}", tags=["Trucks"])
+@app.patch("/api/trucks/{truck_id}", tags=["Trucks"])
+def update_truck(truck_id: str, data: Dict[str, Any] = Body(...)):
+    if not dao.update_truck(truck_id, data): raise HTTPException(404, "Camión no encontrado")
     return {"status": "updated", "truck": dao.get_truck_by_id(truck_id)}
 
-@app.post("/api/trucks/{truck_id}/variables", response_model=dict, tags=["Trucks"])
-def add_truck_variable(truck_id: str, payload: Dict[str, Any] = Body(...)):
-    """Agrega o modifica una variable individual por clave y valor. Ejemplo: {"name": "patente", "value": "AA-123-ZZ"}"""
-    var_name = payload.get("name")
-    var_value = payload.get("value")
-    if not var_name:
-        raise HTTPException(status_code=400, detail="El cuerpo debe incluir el campo 'name'")
-    success = dao.add_variable_to_truck(truck_id, var_name, var_value)
-    if not success:
-        raise HTTPException(status_code=404, detail="Camión no encontrado")
+@app.post("/api/trucks/{truck_id}/variables", tags=["Trucks"])
+def add_truck_var(truck_id: str, payload: Dict[str, Any] = Body(...)):
+    if not payload.get("name"): raise HTTPException(400, "Campo 'name' requerido")
+    if not dao.add_variable_to_truck(truck_id, payload["name"], payload.get("value")): raise HTTPException(404, "Camión no encontrado")
     return {"status": "variable_added", "truck": dao.get_truck_by_id(truck_id)}
 
-@app.delete("/api/trucks/{truck_id}/variables/{variable_name}", response_model=dict, tags=["Trucks"])
-def delete_truck_variable(truck_id: str, variable_name: str):
-    """Elimina una variable personalizada específica de un camión."""
-    success = dao.delete_variable_from_truck(truck_id, variable_name)
-    if not success:
-        raise HTTPException(status_code=404, detail=f"No se encontró la variable '{variable_name}' en el camión {truck_id}")
+@app.delete("/api/trucks/{truck_id}/variables/{var_name}", tags=["Trucks"])
+def del_truck_var(truck_id: str, var_name: str):
+    if not dao.delete_variable_from_truck(truck_id, var_name): raise HTTPException(404, "Variable no encontrada")
     return {"status": "variable_deleted", "truck": dao.get_truck_by_id(truck_id)}
 
-@app.delete("/api/trucks/{truck_id}", response_model=dict, tags=["Trucks"])
+@app.delete("/api/trucks/{truck_id}", tags=["Trucks"])
 def delete_truck(truck_id: str):
-    """Elimina un camión por su ID."""
-    success = dao.delete_truck(truck_id)
-    if not success:
-        raise HTTPException(status_code=404, detail=f"No se encontró el camión {truck_id} para eliminar")
+    if not dao.delete_truck(truck_id): raise HTTPException(404, "Camión no encontrado")
     return {"status": "deleted", "deleted_id": truck_id}
 
-# =========================================================================
-# ENDPOINTS DRIVERS (Choferes) - CRUD COMPLETO
-# =========================================================================
+# Drivers CRUD
+@app.post("/api/drivers", status_code=201, tags=["Drivers"])
+def create_driver(data: Dict[str, Any] = Body(...)):
+    return {"status": "created", "inserted_id": dao.add_driver(data)}
 
-@app.post("/api/drivers", response_model=dict, status_code=201, tags=["Drivers"])
-def create_driver(driver_data: Dict[str, Any] = Body(...)):
-    try:
-        driver_id = dao.add_driver(driver_data)
-        return {"status": "created", "inserted_id": driver_id}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@app.get("/api/drivers", tags=["Drivers"])
+def list_drivers(): return dao.get_drivers()
 
-@app.get("/api/drivers", response_model=List[dict], tags=["Drivers"])
-def list_drivers():
-    return dao.get_drivers()
-
-@app.get("/api/drivers/{driver_id}", response_model=dict, tags=["Drivers"])
+@app.get("/api/drivers/{driver_id}", tags=["Drivers"])
 def get_driver(driver_id: str):
-    driver = dao.get_driver_by_id(driver_id)
-    if not driver:
-        raise HTTPException(status_code=404, detail="Conductor no encontrado")
-    return driver
+    d = dao.get_driver_by_id(driver_id)
+    if not d: raise HTTPException(404, "Conductor no encontrado")
+    return d
 
-@app.put("/api/drivers/{driver_id}", response_model=dict, tags=["Drivers"])
-def update_driver(driver_id: str, update_data: Dict[str, Any] = Body(...)):
-    success = dao.update_driver(driver_id, update_data)
-    if not success:
-        raise HTTPException(status_code=404, detail="No se pudo actualizar el conductor")
+@app.put("/api/drivers/{driver_id}", tags=["Drivers"])
+def update_driver(driver_id: str, data: Dict[str, Any] = Body(...)):
+    if not dao.update_driver(driver_id, data): raise HTTPException(404, "Conductor no encontrado")
     return {"status": "updated", "driver": dao.get_driver_by_id(driver_id)}
 
-@app.delete("/api/drivers/{driver_id}", response_model=dict, tags=["Drivers"])
+@app.delete("/api/drivers/{driver_id}", tags=["Drivers"])
 def delete_driver(driver_id: str):
-    success = dao.delete_driver(driver_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Conductor no encontrado")
+    if not dao.delete_driver(driver_id): raise HTTPException(404, "Conductor no encontrado")
     return {"status": "deleted", "deleted_id": driver_id}
 
-# =========================================================================
-# ENDPOINTS ROUTES (Rutas Logísticas) - CRUD COMPLETO
-# =========================================================================
+# Routes CRUD
+@app.post("/api/routes", status_code=201, tags=["Routes"])
+def create_route(data: Dict[str, Any] = Body(...)):
+    return {"status": "created", "inserted_id": dao.add_route(data)}
 
-@app.post("/api/routes", response_model=dict, status_code=201, tags=["Routes"])
-def create_route(route_data: Dict[str, Any] = Body(...)):
-    try:
-        route_id = dao.add_route(route_data)
-        return {"status": "created", "inserted_id": route_id}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@app.get("/api/routes", tags=["Routes"])
+def list_routes(): return dao.get_routes()
 
-@app.get("/api/routes", response_model=List[dict], tags=["Routes"])
-def list_routes():
-    return dao.get_routes()
-
-@app.get("/api/routes/{route_id}", response_model=dict, tags=["Routes"])
+@app.get("/api/routes/{route_id}", tags=["Routes"])
 def get_route(route_id: str):
-    route = dao.get_route_by_id(route_id)
-    if not route:
-        raise HTTPException(status_code=404, detail="Ruta no encontrada")
-    return route
+    r = dao.get_route_by_id(route_id)
+    if not r: raise HTTPException(404, "Ruta no encontrada")
+    return r
 
-@app.put("/api/routes/{route_id}", response_model=dict, tags=["Routes"])
-def update_route(route_id: str, update_data: Dict[str, Any] = Body(...)):
-    success = dao.update_route(route_id, update_data)
-    if not success:
-        raise HTTPException(status_code=404, detail="No se pudo actualizar la ruta")
+@app.put("/api/routes/{route_id}", tags=["Routes"])
+def update_route(route_id: str, data: Dict[str, Any] = Body(...)):
+    if not dao.update_route(route_id, data): raise HTTPException(404, "Ruta no encontrada")
     return {"status": "updated", "route": dao.get_route_by_id(route_id)}
 
-@app.delete("/api/routes/{route_id}", response_model=dict, tags=["Routes"])
+@app.delete("/api/routes/{route_id}", tags=["Routes"])
 def delete_route(route_id: str):
-    success = dao.delete_route(route_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Ruta no encontrada")
+    if not dao.delete_route(route_id): raise HTTPException(404, "Ruta no encontrada")
     return {"status": "deleted", "deleted_id": route_id}
 
-# =========================================================================
-# ENDPOINTS GEOFENCES (Geocercas) - CRUD COMPLETO
-# =========================================================================
+# Geofences CRUD
+@app.post("/api/geofences", status_code=201, tags=["Geofences"])
+def create_geofence(data: Dict[str, Any] = Body(...)):
+    return {"status": "created", "inserted_id": dao.add_geofence(data)}
 
-@app.post("/api/geofences", response_model=dict, status_code=201, tags=["Geofences"])
-def create_geofence(geofence_data: Dict[str, Any] = Body(...)):
-    try:
-        gf_id = dao.add_geofence(geofence_data)
-        return {"status": "created", "inserted_id": gf_id}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@app.get("/api/geofences", tags=["Geofences"])
+def list_geofences(): return dao.get_geofences()
 
-@app.get("/api/geofences", response_model=List[dict], tags=["Geofences"])
-def list_geofences():
-    return dao.get_geofences()
-
-@app.get("/api/geofences/{geofence_id}", response_model=dict, tags=["Geofences"])
+@app.get("/api/geofences/{geofence_id}", tags=["Geofences"])
 def get_geofence(geofence_id: str):
-    gf = dao.get_geofence_by_id(geofence_id)
-    if not gf:
-        raise HTTPException(status_code=404, detail="Geocerca no encontrada")
-    return gf
+    g = dao.get_geofence_by_id(geofence_id)
+    if not g: raise HTTPException(404, "Geocerca no encontrada")
+    return g
 
-@app.put("/api/geofences/{geofence_id}", response_model=dict, tags=["Geofences"])
-def update_geofence(geofence_id: str, update_data: Dict[str, Any] = Body(...)):
-    success = dao.update_geofence(geofence_id, update_data)
-    if not success:
-        raise HTTPException(status_code=404, detail="No se pudo actualizar la geocerca")
+@app.put("/api/geofences/{geofence_id}", tags=["Geofences"])
+def update_geofence(geofence_id: str, data: Dict[str, Any] = Body(...)):
+    if not dao.update_geofence(geofence_id, data): raise HTTPException(404, "Geocerca no encontrada")
     return {"status": "updated", "geofence": dao.get_geofence_by_id(geofence_id)}
 
-@app.delete("/api/geofences/{geofence_id}", response_model=dict, tags=["Geofences"])
+@app.delete("/api/geofences/{geofence_id}", tags=["Geofences"])
 def delete_geofence(geofence_id: str):
-    success = dao.delete_geofence(geofence_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Geocerca no encontrada")
+    if not dao.delete_geofence(geofence_id): raise HTTPException(404, "Geocerca no encontrada")
     return {"status": "deleted", "deleted_id": geofence_id}
 
-# =========================================================================
-# ENDPOINTS TELEMETRY (Telemetría IoT)
-# =========================================================================
+# Telemetry
+@app.post("/api/telemetry", status_code=201, tags=["Telemetry"])
+def receive_telemetry(data: Dict[str, Any] = Body(...)):
+    return {"status": "success", "inserted_id": dao.add_telemetry(data)}
 
-@app.post("/api/telemetry", response_model=dict, status_code=201, tags=["Telemetry"])
-def receive_telemetry(telemetry_data: Dict[str, Any] = Body(...)):
-    try:
-        telemetry_id = dao.add_telemetry(telemetry_data)
-        return {"status": "success", "inserted_id": telemetry_id}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+@app.get("/api/telemetry/{truck_id}", tags=["Telemetry"])
+def get_telemetry(truck_id: str): return dao.get_telemetry(truck_id)
 
-@app.get("/api/telemetry/{truck_id}", response_model=List[dict], tags=["Telemetry"])
-def get_truck_telemetry(truck_id: str):
-    return dao.get_telemetry(truck_id)
-
-@app.get("/api/telemetry/stats/{truck_id}", response_model=dict, tags=["Telemetry"])
+@app.get("/api/telemetry/stats/{truck_id}", tags=["Telemetry"])
 def get_truck_stats(truck_id: str):
-    stats = dao.get_truck_statistics(truck_id)
-    if not stats:
-        raise HTTPException(status_code=404, detail="No hay datos de telemetría para este camión")
-    return stats
+    s = dao.get_truck_statistics(truck_id)
+    if not s: raise HTTPException(404, "Sin datos de telemetría")
+    return s
