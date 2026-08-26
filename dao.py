@@ -15,8 +15,8 @@ class FleetDAO:
     Data Access Object (DAO) para el sistema FleetDAO.
     
     Proporciona un acceso directo, limpio y dinámico a MongoDB.
-    Permite operaciones CRUD completas, agregación analítica de métricas y la adición/modificación
-    dinámica de cualquier variable sobre las colecciones: trucks, drivers, routes, geofences y telemetry.
+    Permite operaciones CRUD completas, búsquedas por variables personalizadas, agregación analítica de métricas
+    y la adición/modificación dinámica de cualquier variable sobre las colecciones: trucks, drivers, routes, geofences y telemetry.
     """
 
     def __init__(self):
@@ -112,7 +112,14 @@ class FleetDAO:
         oid = self._oid(doc_id)
         return self._db[collection_name].update_one({"_id": oid}, {"$unset": {field_name: ""}}).modified_count > 0 if oid else False
 
-    # Métodos genéricos de manipulación de variables por colección
+    # -------------------------------------------------------------------------
+    # Búsqueda Dinámica por Variables Personalizadas
+    # -------------------------------------------------------------------------
+
+    def search_by_variable(self, collection_name: str, key: str, value: Any) -> List[Dict[str, Any]]:
+        """[SEARCH DYNAMIC] Filtra documentos de cualquier colección por cualquier campo o variable dinámica."""
+        return self._get_all(collection_name, {key: value})
+
     def add_variable(self, collection_name: str, doc_id: str, variable_name: str, value: Any) -> bool:
         return self._update(collection_name, doc_id, **{variable_name: value})
 
@@ -140,6 +147,10 @@ class FleetDAO:
     def get_truck_by_id(self, truck_id: str) -> Optional[Dict[str, Any]]:
         """[READ ONE] Busca un camión por ID."""
         return self._get_by_id("trucks", truck_id)
+
+    def get_trucks_by_variable(self, key: str, value: Any) -> List[Dict[str, Any]]:
+        """[SEARCH TRUCKS] Filtra camiones por cualquier variable personalizada."""
+        return self.search_by_variable("trucks", key, value)
 
     def update_truck(self, truck_id: str, update_data: Dict[str, Any] = None, **kwargs) -> bool:
         """[UPDATE] Actualiza un camión o agrega nuevas variables. Ejemplo: dao.update_truck(id, patente='BB999')"""
@@ -301,7 +312,7 @@ class FleetDAO:
         return self._clean(res[0]) if res else {}
 
     # =========================================================================
-    # 6. ANALYTICS & EXECUTIVE DASHBOARD (Mejoras Pro de la Flota)
+    # 6. ANALYTICS & EXECUTIVE DASHBOARD
     # =========================================================================
 
     def get_fleet_summary(self) -> Dict[str, Any]:
