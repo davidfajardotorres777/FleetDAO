@@ -1,45 +1,216 @@
-from fastapi import FastAPI, HTTPException
-from typing import List
+from fastapi import FastAPI, HTTPException, Body
+from typing import List, Dict, Any
 
 from dao import FleetDAO
-from db_models.trucks import Truck
-from db_models.telemetry import Telemetry
+from db_models import (
+    Truck, TruckUpdate,
+    Driver, DriverUpdate,
+    Route, RouteUpdate,
+    Geofence, GeofenceUpdate,
+    Telemetry, TelemetryUpdate,
+)
 
 app = FastAPI(
     title="FleetDAO API",
-    description="API para conectar los camiones con la bd",
-    version="1.0"
+    description="API RESTful completa para la gestión de flotas, choferes, rutas, geocercas y telemetría.",
+    version="2.0"
 )
 
-# Inicializar el DAO al arrancar
+# Instancia global del DAO
 dao = FleetDAO()
 
 @app.get("/")
 def read_root():
-    return {"message": "FleetDAO API funcionando correctamente"}
+    return {
+        "status": "online",
+        "message": "FleetDAO API funcionando correctamente",
+        "version": "2.0",
+        "docs": "/docs"
+    }
 
-@app.post("/api/trucks", response_model=dict)
-def register_truck(truck: Truck):
+# =========================================================================
+# ENDPOINTS TRUCKS (Camiones) - CRUD COMPLETO
+# =========================================================================
+
+@app.post("/api/trucks", response_model=dict, status_code=201)
+def create_truck(truck: Truck):
+    """Crea un nuevo camión. Permite enviar variables personalizadas extra en el cuerpo de la petición."""
     try:
         truck_id = dao.add_truck(truck)
-        return {"inserted_id": truck_id}
+        return {"status": "created", "inserted_id": truck_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creando camión: {str(e)}")
+
+@app.get("/api/trucks", response_model=List[dict])
+def list_trucks():
+    """Retorna la lista de todos los camiones registrados."""
+    return dao.get_trucks()
+
+@app.get("/api/trucks/{truck_id}", response_model=dict)
+def get_truck(truck_id: str):
+    """Obtiene un camión por su ID."""
+    truck = dao.get_truck_by_id(truck_id)
+    if not truck:
+        raise HTTPException(status_code=404, detail=f"Camión con ID {truck_id} no encontrado")
+    return truck
+
+@app.put("/api/trucks/{truck_id}", response_model=dict)
+def update_truck(truck_id: str, update_data: Dict[str, Any] = Body(...)):
+    """
+    Modifica un camión o agrega variables nuevas dinámicamente.
+    
+    Ejemplo de Body JSON:
+    {
+        "capacity_tons": 32.5,
+        "year": 2025,
+        "status": "maintenance",
+        "custom_notes": "Revisión técnica aprobada"
+    }
+    """
+    success = dao.update_truck(truck_id, update_data)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"No se pudo actualizar el camión {truck_id}. Verifica que el ID sea correcto.")
+    updated_truck = dao.get_truck_by_id(truck_id)
+    return {"status": "updated", "truck": updated_truck}
+
+@app.delete("/api/trucks/{truck_id}", response_model=dict)
+def delete_truck(truck_id: str):
+    """Elimina un camión por su ID."""
+    success = dao.delete_truck(truck_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"No se encontró el camión {truck_id} para eliminar")
+    return {"status": "deleted", "deleted_id": truck_id}
+
+# =========================================================================
+# ENDPOINTS DRIVERS (Choferes) - CRUD COMPLETO
+# =========================================================================
+
+@app.post("/api/drivers", response_model=dict, status_code=201)
+def create_driver(driver: Driver):
+    try:
+        driver_id = dao.add_driver(driver)
+        return {"status": "created", "inserted_id": driver_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/trucks")
-def list_trucks():
-    trucks = dao.get_trucks()
-    # Convertir ObjectId a string para serializar en JSON
-    for t in trucks:
-        t["_id"] = str(t["_id"])
-    return trucks
+@app.get("/api/drivers", response_model=List[dict])
+def list_drivers():
+    return dao.get_drivers()
 
-@app.post("/api/telemetry")
+@app.get("/api/drivers/{driver_id}", response_model=dict)
+def get_driver(driver_id: str):
+    driver = dao.get_driver_by_id(driver_id)
+    if not driver:
+        raise HTTPException(status_code=404, detail="Conductor no encontrado")
+    return driver
+
+@app.put("/api/drivers/{driver_id}", response_model=dict)
+def update_driver(driver_id: str, update_data: Dict[str, Any] = Body(...)):
+    success = dao.update_driver(driver_id, update_data)
+    if not success:
+        raise HTTPException(status_code=404, detail="No se pudo actualizar el conductor")
+    return {"status": "updated", "driver": dao.get_driver_by_id(driver_id)}
+
+@app.delete("/api/drivers/{driver_id}", response_model=dict)
+def delete_driver(driver_id: str):
+    success = dao.delete_driver(driver_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Conductor no encontrado")
+    return {"status": "deleted", "deleted_id": driver_id}
+
+# =========================================================================
+# ENDPOINTS ROUTES (Rutas Logísticas) - CRUD COMPLETO
+# =========================================================================
+
+@app.post("/api/routes", response_model=dict, status_code=201)
+def create_route(route: Route):
+    try:
+        route_id = dao.add_route(route)
+        return {"status": "created", "inserted_id": route_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/routes", response_model=List[dict])
+def list_routes():
+    return dao.get_routes()
+
+@app.get("/api/routes/{route_id}", response_model=dict)
+def get_route(route_id: str):
+    route = dao.get_route_by_id(route_id)
+    if not route:
+        raise HTTPException(status_code=404, detail="Ruta no encontrada")
+    return route
+
+@app.put("/api/routes/{route_id}", response_model=dict)
+def update_route(route_id: str, update_data: Dict[str, Any] = Body(...)):
+    success = dao.update_route(route_id, update_data)
+    if not success:
+        raise HTTPException(status_code=404, detail="No se pudo actualizar la ruta")
+    return {"status": "updated", "route": dao.get_route_by_id(route_id)}
+
+@app.delete("/api/routes/{route_id}", response_model=dict)
+def delete_route(route_id: str):
+    success = dao.delete_route(route_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Ruta no encontrada")
+    return {"status": "deleted", "deleted_id": route_id}
+
+# =========================================================================
+# ENDPOINTS GEOFENCES (Geocercas) - CRUD COMPLETO
+# =========================================================================
+
+@app.post("/api/geofences", response_model=dict, status_code=201)
+def create_geofence(geofence: Geofence):
+    try:
+        gf_id = dao.add_geofence(geofence)
+        return {"status": "created", "inserted_id": gf_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/geofences", response_model=List[dict])
+def list_geofences():
+    return dao.get_geofences()
+
+@app.get("/api/geofences/{geofence_id}", response_model=dict)
+def get_geofence(geofence_id: str):
+    gf = dao.get_geofence_by_id(geofence_id)
+    if not gf:
+        raise HTTPException(status_code=404, detail="Geocerca no encontrada")
+    return gf
+
+@app.put("/api/geofences/{geofence_id}", response_model=dict)
+def update_geofence(geofence_id: str, update_data: Dict[str, Any] = Body(...)):
+    success = dao.update_geofence(geofence_id, update_data)
+    if not success:
+        raise HTTPException(status_code=404, detail="No se pudo actualizar la geocerca")
+    return {"status": "updated", "geofence": dao.get_geofence_by_id(geofence_id)}
+
+@app.delete("/api/geofences/{geofence_id}", response_model=dict)
+def delete_geofence(geofence_id: str):
+    success = dao.delete_geofence(geofence_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Geocerca no encontrada")
+    return {"status": "deleted", "deleted_id": geofence_id}
+
+# =========================================================================
+# ENDPOINTS TELEMETRY (Telemetría IoT)
+# =========================================================================
+
+@app.post("/api/telemetry", response_model=dict, status_code=201)
 def receive_telemetry(telemetry: Telemetry):
-    # Endpoint que recibe los datos de velocidad y temp desde el camion
     try:
         telemetry_id = dao.add_telemetry(telemetry)
         return {"status": "success", "inserted_id": telemetry_id}
     except Exception as e:
-        # Si hay algun error al insertar manda 400
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/telemetry/{truck_id}", response_model=List[dict])
+def get_truck_telemetry(truck_id: str):
+    return dao.get_telemetry(truck_id)
+
+@app.get("/api/telemetry/stats/{truck_id}", response_model=dict)
+def get_truck_stats(truck_id: str):
+    stats = dao.get_truck_statistics(truck_id)
+    if not stats:
+        raise HTTPException(status_code=404, detail="No hay datos de telemetría para este camión")
+    return stats

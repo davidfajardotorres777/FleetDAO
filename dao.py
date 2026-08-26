@@ -1,32 +1,48 @@
 import logging
+from typing import List, Dict, Any, Optional, Union
+from bson import ObjectId
+from bson.errors import InvalidId
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError, DuplicateKeyError
 
 from config_vars import MONGO_URI, DB_NAME
-from db_models.trucks import Truck
-from db_models.drivers import Driver
-from db_models.routes import Route
-from db_models.telemetry import Telemetry
-from db_models.geofence import Geofence
+from db_models.trucks import Truck, TruckUpdate
+from db_models.drivers import Driver, DriverUpdate
+from db_models.routes import Route, RouteUpdate
+from db_models.telemetry import Telemetry, TelemetryUpdate
+from db_models.geofence import Geofence, GeofenceUpdate
 
-# Configuración básica para el registro de logs del sistema
+# Configuración básica de logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("FleetDAO")
 
+
 class FleetDAO:
     """
-    Data Access Object (DAO) para la gestión del sistema de telemetría FleetDAO.
+    Data Access Object (DAO) para el sistema de gestión de flotas y telemetría FleetDAO.
 
-    Proporciona una capa de abstracción para todas las interacciones con MongoDB,
-    garantizando el correcto manejo de errores, la gestión de índices geoespaciales
-    y temporales, y la ejecución de pipelines de agregación.
+    Proporciona una capa de abstracción para todas las operaciones CRUD (Crear, Leer,
+    Modificar, Eliminar) en las colecciones de MongoDB:
+      - trucks (Camiones)
+      - drivers (Choferes)
+      - routes (Rutas)
+      - telemetry (Telemetría)
+      - geofences (Geocercas)
+
+    ¿CÓMO AGREGAR UNA NUEVA VARIABLE O MÉTODO A UNA ENTIDAD?
+    -------------------------------------------------------
+    1. Para agregar una variable a Truck (ej. 'year' o 'plate'):
+       - Añádela en `db_models/trucks.py` dentro de la clase `Truck` (y en `TruckUpdate`).
+       - Pydantic usará `ConfigDict(extra="allow")`, permitiendo variables arbitrarias.
+       - En `update_truck`, cualquier variable enviada en el diccionario o modelo será
+         guardada automáticamente en la base de datos con `$set`.
+
+    2. Para agregar un nuevo método CRUD:
+       - Agrega la función en esta clase usando los helpers `_to_object_id` y `_clean_doc`.
     """
 
     def __init__(self):
-        """
-        Inicializa la conexión con MongoDB y establece las referencias a las colecciones.
-        Configura los índices necesarios para garantizar unicidad y búsquedas espaciales eficientes.
-        """
+        """Inicializa la conexión con MongoDB y configura los índices necesarios."""
         try:
             self._client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
             self._db = self._client[DB_NAME]
@@ -36,117 +52,359 @@ class FleetDAO:
             self._routes = self._db["routes"]
             self._telemetry = self._db["telemetry"]
             self._geofences = self._db["geofences"]
-            
-            # Índice compuesto único para evitar duplicación de eventos de telemetría
+
+            # Índices de optimización
             self._telemetry.create_index([("truck_id", 1), ("timestamp", 1)], unique=True)
-            # Índice geoespacial 2dsphere para permitir operaciones $near y $geoWithin
             self._telemetry.create_index([("location", "2dsphere")])
-            logger.info("Conexión exitosa a MongoDB e índices inicializados.")
+            logger.info("Conexión exitosa a MongoDB e índices configurados correctamente.")
         except PyMongoError as e:
-            logger.error(f"Fallo crítico en la conexión a MongoDB: {e}")
+            logger.error(f"Error crítico conectando a MongoDB: {e}")
             raise
 
     def close(self):
-        """Cierra la conexión activa con el clúster de MongoDB."""
+        """Cierra la conexión activa con MongoDB."""
         self._client.close()
-        logger.info("Conexión a MongoDB cerrada de manera segura.")
+        logger.info("Conexión a MongoDB cerrada.")
 
-    # --- Trucks ---
-    def add_truck(self, truck: Truck) -> str:
+    # -------------------------------------------------------------------------
+    # Métodos Auxiliares Internos (Normalización de ObjectId y Respuestas JSON)
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def _to_object_id(id_str: str) -> Optional[ObjectId]:
+        """Convierte un string a ObjectId de MongoDB de forma segura."""
+        if not id_str:
+            return None
+        if isinstance(id_str, ObjectId):
+            return id_str
+        try:
+            return ObjectId(str(id_str))
+        except (InvalidId, TypeError):
+            logger.warning(f"ID inválido proporcionado: {id_str}")
+            return None
+
+    @staticmethod
+    def _clean_doc(doc: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """
-        Inserta un nuevo camión en la base de datos.
-        
-        Args:
-            truck (Truck): Entidad validada por Pydantic que representa el camión.
-            
-        Returns:
-            str: El ObjectID generado por MongoDB.
+        Limpia un documento de MongoDB convirtiendo `_id` a `str`
+        para garantizar que sea totalmente serializable en JSON.
+        """
+        if not doc:
+            return None
+        doc["_id"] = str(doc["_id"])
+        doc["id"] = doc["_id"]
+        return doc
+
+    @classmethod
+    def _clean_docs(cls, docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Aplica `_clean_doc` sobre una lista de documentos."""
+        return [cls._clean_doc(d) for d in docs if d]
+
+    # =========================================================================
+    # 1. TRUCKS (Camiones) - CRUD COMPLETO
+    # =========================================================================
+
+    def add_truck(self, truck: Union[Truck, Dict[str, Any]]) -> str:
+        """
+        [CREATE] Registra un nuevo camión en el sistema.
+        Acepta una instancia de `Truck` o un diccionario con las propiedades.
         """
         try:
-            res = self._trucks.insert_one(truck.to_dict())
+            data = truck.to_dict() if isinstance(truck, Truck) else dict(truck)
+            res = self._trucks.insert_one(data)
             logger.info(f"Camión insertado con ID: {res.inserted_id}")
             return str(res.inserted_id)
         except PyMongoError as e:
             logger.error(f"Error insertando camión: {e}")
             raise
 
-    def get_trucks(self) -> list[dict]:
-        """Recupera la lista de todos los camiones registrados."""
+    def get_trucks(self) -> List[Dict[str, Any]]:
+        """[READ ALL] Obtiene la lista completa de camiones registrados."""
         try:
-            return list(self._trucks.find())
+            cursor = self._trucks.find()
+            return self._clean_docs(list(cursor))
         except PyMongoError as e:
-            logger.error(f"Error obteniendo camiones: {e}")
+            logger.error(f"Error obteniendo lista de camiones: {e}")
             return []
 
-    # --- Drivers ---
-    def add_driver(self, driver: Driver) -> str:
+    def get_truck_by_id(self, truck_id: str) -> Optional[Dict[str, Any]]:
+        """[READ ONE] Obtiene los datos de un camión específico por su ID."""
+        try:
+            oid = self._to_object_id(truck_id)
+            if not oid:
+                return None
+            doc = self._trucks.find_one({"_id": oid})
+            return self._clean_doc(doc)
+        except PyMongoError as e:
+            logger.error(f"Error buscando camión por ID {truck_id}: {e}")
+            return None
+
+    def update_truck(self, truck_id: str, update_data: Union[TruckUpdate, Dict[str, Any]]) -> bool:
         """
-        Inserta un nuevo conductor en el sistema.
+        [UPDATE / MODIFICAR] Actualiza cualquier campo o agrega nuevas variables a un camión.
         
-        Args:
-            driver (Driver): Modelo Pydantic validado.
+        Permite enviar campos existentes (brand, capacity_tons) o cualquier variable
+        nueva (ej: {"year": 2024, "license_plate": "AA123BB", "mi_variable_custom": "valor"}).
         """
         try:
-            res = self._drivers.insert_one(driver.to_dict())
+            oid = self._to_object_id(truck_id)
+            if not oid:
+                return False
+
+            if isinstance(update_data, TruckUpdate):
+                payload = update_data.to_dict()
+            elif isinstance(update_data, dict):
+                payload = update_data.copy()
+                payload.pop("_id", None)
+                payload.pop("id", None)
+            else:
+                raise ValueError("Payload de actualización no válido")
+
+            if not payload:
+                return False
+
+            res = self._trucks.update_one({"_id": oid}, {"$set": payload})
+            modified = res.modified_count > 0 or res.matched_count > 0
+            if modified:
+                logger.info(f"Camión {truck_id} actualizado exitosamente.")
+            return modified
+        except PyMongoError as e:
+            logger.error(f"Error actualizando camión {truck_id}: {e}")
+            raise
+
+    def delete_truck(self, truck_id: str) -> bool:
+        """[DELETE / ELIMINAR] Elimina un camión del sistema por su ID."""
+        try:
+            oid = self._to_object_id(truck_id)
+            if not oid:
+                return False
+            res = self._trucks.delete_one({"_id": oid})
+            deleted = res.deleted_count > 0
+            if deleted:
+                logger.info(f"Camión {truck_id} eliminado exitosamente.")
+            return deleted
+        except PyMongoError as e:
+            logger.error(f"Error eliminando camión {truck_id}: {e}")
+            raise
+
+    # =========================================================================
+    # 2. DRIVERS (Choferes) - CRUD COMPLETO
+    # =========================================================================
+
+    def add_driver(self, driver: Union[Driver, Dict[str, Any]]) -> str:
+        """[CREATE] Registra un nuevo chofer."""
+        try:
+            data = driver.to_dict() if isinstance(driver, Driver) else dict(driver)
+            res = self._drivers.insert_one(data)
             logger.info(f"Conductor insertado con ID: {res.inserted_id}")
             return str(res.inserted_id)
         except PyMongoError as e:
             logger.error(f"Error insertando conductor: {e}")
             raise
 
-    def get_drivers(self) -> list[dict]:
-        """Obtiene la nómina completa de conductores."""
+    def get_drivers(self) -> List[Dict[str, Any]]:
+        """[READ ALL] Obtiene todos los conductores."""
         try:
-            return list(self._drivers.find())
+            cursor = self._drivers.find()
+            return self._clean_docs(list(cursor))
         except PyMongoError as e:
             logger.error(f"Error obteniendo conductores: {e}")
             return []
 
-    # --- Routes ---
-    def add_route(self, route: Route) -> str:
-        """Asigna una nueva ruta logística a un camión y conductor específicos."""
+    def get_driver_by_id(self, driver_id: str) -> Optional[Dict[str, Any]]:
+        """[READ ONE] Busca un conductor por ID."""
         try:
-            res = self._routes.insert_one(route.to_dict())
+            oid = self._to_object_id(driver_id)
+            if not oid:
+                return None
+            doc = self._drivers.find_one({"_id": oid})
+            return self._clean_doc(doc)
+        except PyMongoError as e:
+            logger.error(f"Error buscando conductor por ID {driver_id}: {e}")
+            return None
+
+    def update_driver(self, driver_id: str, update_data: Union[DriverUpdate, Dict[str, Any]]) -> bool:
+        """[UPDATE] Actualiza variables de un conductor."""
+        try:
+            oid = self._to_object_id(driver_id)
+            if not oid:
+                return False
+            payload = update_data.to_dict() if isinstance(update_data, DriverUpdate) else dict(update_data)
+            payload.pop("_id", None)
+            payload.pop("id", None)
+            if not payload:
+                return False
+            res = self._drivers.update_one({"_id": oid}, {"$set": payload})
+            return res.modified_count > 0 or res.matched_count > 0
+        except PyMongoError as e:
+            logger.error(f"Error actualizando conductor {driver_id}: {e}")
+            raise
+
+    def delete_driver(self, driver_id: str) -> bool:
+        """[DELETE] Elimina un conductor por ID."""
+        try:
+            oid = self._to_object_id(driver_id)
+            if not oid:
+                return False
+            res = self._drivers.delete_one({"_id": oid})
+            return res.deleted_count > 0
+        except PyMongoError as e:
+            logger.error(f"Error eliminando conductor {driver_id}: {e}")
+            raise
+
+    # =========================================================================
+    # 3. ROUTES (Rutas Logísticas) - CRUD COMPLETO
+    # =========================================================================
+
+    def add_route(self, route: Union[Route, Dict[str, Any]]) -> str:
+        """[CREATE] Asigna una nueva ruta logística."""
+        try:
+            data = route.to_dict() if isinstance(route, Route) else dict(route)
+            res = self._routes.insert_one(data)
             logger.info(f"Ruta insertada con ID: {res.inserted_id}")
             return str(res.inserted_id)
         except PyMongoError as e:
             logger.error(f"Error insertando ruta: {e}")
             raise
 
-    def get_routes(self) -> list[dict]:
-        """Recupera el historial de rutas planificadas."""
+    def get_routes(self) -> List[Dict[str, Any]]:
+        """[READ ALL] Recupera la lista de rutas."""
         try:
-            return list(self._routes.find())
+            cursor = self._routes.find()
+            return self._clean_docs(list(cursor))
         except PyMongoError as e:
             logger.error(f"Error obteniendo rutas: {e}")
             return []
 
-    # --- Telemetry ---
-    def add_telemetry(self, telemetry: Telemetry) -> str:
-        """
-        Registra una lectura de telemetría IoT del vehículo.
-        Maneja silenciosamente colisiones de timestamp (DuplicateKeyError) para
-        garantizar idempotencia si los sensores reintentan el envío.
-        """
+    def get_route_by_id(self, route_id: str) -> Optional[Dict[str, Any]]:
+        """[READ ONE] Obtiene una ruta por su ID."""
         try:
-            res = self._telemetry.insert_one(telemetry.to_dict())
-            return str(res.inserted_id)
-        except DuplicateKeyError:
-            logger.warning(f"Evento de telemetría duplicado descartado para el camión {telemetry.truck_id}")
-            raise
+            oid = self._to_object_id(route_id)
+            if not oid:
+                return None
+            doc = self._routes.find_one({"_id": oid})
+            return self._clean_doc(doc)
         except PyMongoError as e:
-            logger.error(f"Error insertando evento de telemetría: {e}")
+            logger.error(f"Error buscando ruta por ID {route_id}: {e}")
+            return None
+
+    def update_route(self, route_id: str, update_data: Union[RouteUpdate, Dict[str, Any]]) -> bool:
+        """[UPDATE] Modifica una ruta logística existente."""
+        try:
+            oid = self._to_object_id(route_id)
+            if not oid:
+                return False
+            payload = update_data.to_dict() if isinstance(update_data, RouteUpdate) else dict(update_data)
+            payload.pop("_id", None)
+            payload.pop("id", None)
+            if not payload:
+                return False
+            res = self._routes.update_one({"_id": oid}, {"$set": payload})
+            return res.modified_count > 0 or res.matched_count > 0
+        except PyMongoError as e:
+            logger.error(f"Error actualizando ruta {route_id}: {e}")
             raise
 
-    def get_telemetry(self, truck_id: str, desde=None, hasta=None) -> list[dict]:
+    def delete_route(self, route_id: str) -> bool:
+        """[DELETE] Elimina una ruta logística."""
+        try:
+            oid = self._to_object_id(route_id)
+            if not oid:
+                return False
+            res = self._routes.delete_one({"_id": oid})
+            return res.deleted_count > 0
+        except PyMongoError as e:
+            logger.error(f"Error eliminando ruta {route_id}: {e}")
+            raise
+
+    # =========================================================================
+    # 4. GEOFENCES (Geocercas Espaciales) - CRUD COMPLETO
+    # =========================================================================
+
+    def add_geofence(self, geofence: Union[Geofence, Dict[str, Any]]) -> str:
+        """[CREATE] Registra una nueva geocerca espacial."""
+        try:
+            data = geofence.to_dict() if isinstance(geofence, Geofence) else dict(geofence)
+            res = self._geofences.insert_one(data)
+            logger.info(f"Geocerca insertada con ID: {res.inserted_id}")
+            return str(res.inserted_id)
+        except PyMongoError as e:
+            logger.error(f"Error insertando geocerca: {e}")
+            raise
+
+    def get_geofences(self) -> List[Dict[str, Any]]:
+        """[READ ALL] Lista todas las geocercas registradas."""
+        try:
+            cursor = self._geofences.find()
+            return self._clean_docs(list(cursor))
+        except PyMongoError as e:
+            logger.error(f"Error obteniendo geocercas: {e}")
+            return []
+
+    def get_geofence_by_id(self, geofence_id: str) -> Optional[Dict[str, Any]]:
+        """[READ ONE] Obtiene una geocerca por ID."""
+        try:
+            oid = self._to_object_id(geofence_id)
+            if not oid:
+                return None
+            doc = self._geofences.find_one({"_id": oid})
+            return self._clean_doc(doc)
+        except PyMongoError as e:
+            logger.error(f"Error buscando geocerca por ID {geofence_id}: {e}")
+            return None
+
+    def update_geofence(self, geofence_id: str, update_data: Union[GeofenceUpdate, Dict[str, Any]]) -> bool:
+        """[UPDATE] Modifica una geocerca existente."""
+        try:
+            oid = self._to_object_id(geofence_id)
+            if not oid:
+                return False
+            payload = update_data.to_dict() if isinstance(update_data, GeofenceUpdate) else dict(update_data)
+            payload.pop("_id", None)
+            payload.pop("id", None)
+            if not payload:
+                return False
+            res = self._geofences.update_one({"_id": oid}, {"$set": payload})
+            return res.modified_count > 0 or res.matched_count > 0
+        except PyMongoError as e:
+            logger.error(f"Error actualizando geocerca {geofence_id}: {e}")
+            raise
+
+    def delete_geofence(self, geofence_id: str) -> bool:
+        """[DELETE] Elimina una geocerca por ID."""
+        try:
+            oid = self._to_object_id(geofence_id)
+            if not oid:
+                return False
+            res = self._geofences.delete_one({"_id": oid})
+            return res.deleted_count > 0
+        except PyMongoError as e:
+            logger.error(f"Error eliminando geocerca {geofence_id}: {e}")
+            raise
+
+    # =========================================================================
+    # 5. TELEMETRY (Lecturas IoT y Consultas Geoespaciales) - CRUD COMPLETO
+    # =========================================================================
+
+    def add_telemetry(self, telemetry: Union[Telemetry, Dict[str, Any]]) -> str:
         """
-        Recupera la serie temporal de telemetría de un camión.
-        
-        Args:
-            truck_id (str): Identificador del vehículo.
-            desde (datetime, optional): Límite inferior de la ventana de tiempo.
-            hasta (datetime, optional): Límite superior de la ventana de tiempo.
+        [CREATE] Registra un evento de telemetría IoT.
+        Maneja DuplicateKeyError si el sensor repite el envio en el mismo timestamp.
         """
+        try:
+            data = telemetry.to_dict() if isinstance(telemetry, Telemetry) else dict(telemetry)
+            res = self._telemetry.insert_one(data)
+            return str(res.inserted_id)
+        except DuplicateKeyError:
+            truck_id = getattr(telemetry, "truck_id", data.get("truck_id", "desconocido"))
+            logger.warning(f"Evento de telemetría duplicado omitido para el camión {truck_id}")
+            raise
+        except PyMongoError as e:
+            logger.error(f"Error insertando telemetría: {e}")
+            raise
+
+    def get_telemetry(self, truck_id: str, desde=None, hasta=None) -> List[Dict[str, Any]]:
+        """[READ] Recupera la serie temporal de telemetría de un camión."""
         try:
             query = {"truck_id": truck_id}
             if desde or hasta:
@@ -155,17 +413,56 @@ class FleetDAO:
                     query["timestamp"]["$gte"] = desde
                 if hasta:
                     query["timestamp"]["$lte"] = hasta
-                    
-            return list(self._telemetry.find(query).sort("timestamp", 1))
+
+            cursor = self._telemetry.find(query).sort("timestamp", 1)
+            return self._clean_docs(list(cursor))
         except PyMongoError as e:
-            logger.error(f"Error obteniendo telemetría temporal: {e}")
+            logger.error(f"Error obteniendo telemetría de {truck_id}: {e}")
             return []
 
-    def get_telemetry_near(self, truck_id: str, lon: float, lat: float, max_distance_meters: float) -> list[dict]:
-        """
-        Ejecuta una consulta espacial `$near` utilizando el índice `2dsphere`.
-        Detecta si un camión emitió lecturas en un radio determinado de una coordenada.
-        """
+    def get_telemetry_by_id(self, telemetry_id: str) -> Optional[Dict[str, Any]]:
+        """[READ ONE] Obtiene una lectura de telemetría por ID."""
+        try:
+            oid = self._to_object_id(telemetry_id)
+            if not oid:
+                return None
+            doc = self._telemetry.find_one({"_id": oid})
+            return self._clean_doc(doc)
+        except PyMongoError as e:
+            logger.error(f"Error buscando lectura de telemetría por ID {telemetry_id}: {e}")
+            return None
+
+    def update_telemetry(self, telemetry_id: str, update_data: Union[TelemetryUpdate, Dict[str, Any]]) -> bool:
+        """[UPDATE] Modifica o agrega variables a un registro de telemetría."""
+        try:
+            oid = self._to_object_id(telemetry_id)
+            if not oid:
+                return False
+            payload = update_data.to_dict() if isinstance(update_data, TelemetryUpdate) else dict(update_data)
+            payload.pop("_id", None)
+            payload.pop("id", None)
+            if not payload:
+                return False
+            res = self._telemetry.update_one({"_id": oid}, {"$set": payload})
+            return res.modified_count > 0 or res.matched_count > 0
+        except PyMongoError as e:
+            logger.error(f"Error actualizando telemetría {telemetry_id}: {e}")
+            raise
+
+    def delete_telemetry(self, telemetry_id: str) -> bool:
+        """[DELETE] Elimina un registro de telemetría."""
+        try:
+            oid = self._to_object_id(telemetry_id)
+            if not oid:
+                return False
+            res = self._telemetry.delete_one({"_id": oid})
+            return res.deleted_count > 0
+        except PyMongoError as e:
+            logger.error(f"Error eliminando telemetría {telemetry_id}: {e}")
+            raise
+
+    def get_telemetry_near(self, truck_id: str, lon: float, lat: float, max_distance_meters: float) -> List[Dict[str, Any]]:
+        """Consulta espacial `$near` con índice `2dsphere`."""
         try:
             query = {
                 "truck_id": truck_id,
@@ -179,16 +476,34 @@ class FleetDAO:
                     }
                 }
             }
-            return list(self._telemetry.find(query))
+            cursor = self._telemetry.find(query)
+            return self._clean_docs(list(cursor))
         except PyMongoError as e:
-            logger.error(f"Error en evaluación geoespacial por radio: {e}")
+            logger.error(f"Error en consulta $near para {truck_id}: {e}")
             return []
 
-    def get_truck_statistics(self, truck_id: str) -> dict:
-        """
-        Delega el cálculo analítico al motor de base de datos utilizando MongoDB Aggregation Pipelines.
-        Evita procesar grandes volúmenes de datos en la capa de aplicación.
-        """
+    def get_telemetry_in_polygon(self, truck_id: str, polygon: List[List[float]]) -> List[Dict[str, Any]]:
+        """Consulta espacial `$geoWithin` para verificar presencia dentro de un polígono."""
+        try:
+            query = {
+                "truck_id": truck_id,
+                "location": {
+                    "$geoWithin": {
+                        "$geometry": {
+                            "type": "Polygon",
+                            "coordinates": [polygon]
+                        }
+                    }
+                }
+            }
+            cursor = self._telemetry.find(query)
+            return self._clean_docs(list(cursor))
+        except PyMongoError as e:
+            logger.error(f"Error en consulta $geoWithin para {truck_id}: {e}")
+            return []
+
+    def get_truck_statistics(self, truck_id: str) -> Dict[str, Any]:
+        """Agregación analítica en MongoDB (velocidad promedio, temp máxima, etc.)."""
         try:
             pipeline = [
                 {"$match": {"truck_id": truck_id}},
@@ -202,41 +517,10 @@ class FleetDAO:
             ]
             result = list(self._telemetry.aggregate(pipeline))
             if result:
-                return result[0]
+                doc = result[0]
+                doc["_id"] = str(doc["_id"])
+                return doc
             return {}
         except PyMongoError as e:
-            logger.error(f"Error durante agregación estadística: {e}")
+            logger.error(f"Error en agregación de estadísticas para {truck_id}: {e}")
             return {}
-
-    # --- Geofences ---
-    def add_geofence(self, geofence: Geofence) -> str:
-        """Registra un nuevo polígono espacial de autorización (Geocerca)."""
-        try:
-            res = self._geofences.insert_one(geofence.to_dict())
-            logger.info(f"Geocerca espacial insertada con ID: {res.inserted_id}")
-            return str(res.inserted_id)
-        except PyMongoError as e:
-            logger.error(f"Error insertando geocerca: {e}")
-            raise
-
-    def get_telemetry_in_polygon(self, truck_id: str, polygon: list[list[float]]) -> list[dict]:
-        """
-        Implementa validación de trayectoria contra límites espaciales utilizando `$geoWithin`.
-        Recupera toda la telemetría del camión contenida exclusivamente dentro del polígono delimitado.
-        """
-        try:
-            query = {
-                "truck_id": truck_id,
-                "location": {
-                    "$geoWithin": {
-                        "$geometry": {
-                            "type": "Polygon",
-                            "coordinates": [polygon]
-                        }
-                    }
-                }
-            }
-            return list(self._telemetry.find(query))
-        except PyMongoError as e:
-            logger.error(f"Error procesando límites de geocerca por polígono: {e}")
-            return []
