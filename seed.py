@@ -3,10 +3,6 @@ from datetime import datetime, timedelta
 from pymongo.errors import DuplicateKeyError
 
 from dao import FleetDAO
-from db_models.trucks import Truck
-from db_models.drivers import Driver
-from db_models.routes import Route
-from db_models.telemetry import Telemetry
 
 def seed_database():
     dao = FleetDAO()
@@ -16,17 +12,17 @@ def seed_database():
         print("La base de datos ya tiene camiones cargados, actualizando los datos de prueba...")
     else:
         print("Agregando camiones...")
-        t1_id = dao.add_truck(Truck(brand="Volvo", capacity_tons=25.5))
-        t2_id = dao.add_truck(Truck(brand="Mercedes-Benz", capacity_tons=30.0))
-        t3_id = dao.add_truck(Truck(brand="Scania", capacity_tons=18.0))
+        t1_id = dao.add_truck(brand="Volvo", capacity_tons=25.5)
+        t2_id = dao.add_truck(brand="Mercedes-Benz", capacity_tons=30.0)
+        t3_id = dao.add_truck(brand="Scania", capacity_tons=18.0)
 
         print("Agregando choferes...")
-        d1_id = dao.add_driver(Driver(name="Juan Perez", license_level="A"))
-        d2_id = dao.add_driver(Driver(name="Maria Gonzalez", license_level="B"))
+        d1_id = dao.add_driver(name="Juan Perez", license_level="A")
+        d2_id = dao.add_driver(name="Maria Gonzalez", license_level="B")
 
         print("Agregando rutas...")
-        dao.add_route(Route(origin="Buenos Aires", destination="Cordoba", truck_id=t1_id, driver_id=d1_id))
-        dao.add_route(Route(origin="Rosario", destination="Mendoza", truck_id=t2_id, driver_id=d2_id))
+        dao.add_route(origin="Buenos Aires", destination="Cordoba", truck_id=t1_id, driver_id=d1_id)
+        dao.add_route(origin="Rosario", destination="Mendoza", truck_id=t2_id, driver_id=d2_id)
     
     trucks = dao.get_trucks()
     if not trucks:
@@ -91,19 +87,17 @@ def seed_database():
         # Va gastando combustible de a poco
         current_fuel -= random.uniform(0.05, 0.15)
         
-        telemetry = Telemetry(
-            truck_id=t1_id,
-            timestamp=current_time,
-            speed_kmh=round(current_speed, 2),
-            engine_rpm=current_rpm,
-            engine_temp_c=round(current_temp, 2),
-            fuel_level_pct=round(current_fuel, 2),
-            lon=round(current_lon, 5),
-            lat=round(current_lat, 5)
-        )
-        
         try:
-            dao.add_telemetry(telemetry)
+            dao.add_telemetry(
+                truck_id=t1_id,
+                timestamp=current_time,
+                speed_kmh=round(current_speed, 2),
+                engine_rpm=current_rpm,
+                engine_temp_c=round(current_temp, 2),
+                fuel_level_pct=round(current_fuel, 2),
+                lon=round(current_lon, 5),
+                lat=round(current_lat, 5)
+            )
         except DuplicateKeyError:
             pass
             

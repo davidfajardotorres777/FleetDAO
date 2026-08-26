@@ -2,18 +2,11 @@ from fastapi import FastAPI, HTTPException, Body
 from typing import List, Dict, Any
 
 from dao import FleetDAO
-from db_models import (
-    Truck, TruckUpdate,
-    Driver, DriverUpdate,
-    Route, RouteUpdate,
-    Geofence, GeofenceUpdate,
-    Telemetry, TelemetryUpdate,
-)
 
 app = FastAPI(
     title="FleetDAO API",
-    description="API RESTful completa para la gestión de flotas, choferes, rutas, geocercas y telemetría.",
-    version="2.0"
+    description="API RESTful directa y ligera para la gestión de flotas, choferes, rutas, geocercas y telemetría.",
+    version="3.0"
 )
 
 # Instancia global del DAO
@@ -24,7 +17,7 @@ def read_root():
     return {
         "status": "online",
         "message": "FleetDAO API funcionando correctamente",
-        "version": "2.0",
+        "version": "3.0",
         "docs": "/docs"
     }
 
@@ -33,10 +26,10 @@ def read_root():
 # =========================================================================
 
 @app.post("/api/trucks", response_model=dict, status_code=201)
-def create_truck(truck: Truck):
-    """Crea un nuevo camión. Permite enviar variables personalizadas extra en el cuerpo de la petición."""
+def create_truck(truck_data: Dict[str, Any] = Body(..., example={"brand": "Volvo", "capacity_tons": 28.0, "patente": "AA-123-ZZ"})):
+    """Crea un nuevo camión. Acepta cualquier propiedad o variable personalizada en el JSON."""
     try:
-        truck_id = dao.add_truck(truck)
+        truck_id = dao.add_truck(truck_data)
         return {"status": "created", "inserted_id": truck_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error creando camión: {str(e)}")
@@ -57,26 +50,15 @@ def get_truck(truck_id: str):
 @app.put("/api/trucks/{truck_id}", response_model=dict)
 @app.patch("/api/trucks/{truck_id}", response_model=dict)
 def update_truck(truck_id: str, update_data: Dict[str, Any] = Body(...)):
-    """
-    Modifica un camión o agrega variables nuevas dinámicamente.
-    
-    Ejemplo de Body JSON:
-    {
-        "capacity_tons": 32.5,
-        "year": 2025,
-        "status": "maintenance",
-        "custom_notes": "Revisión técnica aprobada"
-    }
-    """
+    """Modifica un camión o agrega variables nuevas dinámicamente."""
     success = dao.update_truck(truck_id, update_data)
     if not success:
-        raise HTTPException(status_code=404, detail=f"No se pudo actualizar el camión {truck_id}. Verifica que el ID sea correcto.")
-    updated_truck = dao.get_truck_by_id(truck_id)
-    return {"status": "updated", "truck": updated_truck}
+        raise HTTPException(status_code=404, detail=f"No se pudo actualizar el camión {truck_id}")
+    return {"status": "updated", "truck": dao.get_truck_by_id(truck_id)}
 
 @app.post("/api/trucks/{truck_id}/variables", response_model=dict)
 def add_truck_variable(truck_id: str, payload: Dict[str, Any] = Body(...)):
-    """Agrega o modifica una variable individual por clave y valor. Cuerpo esperado: {"name": "patente", "value": "AA-123-ZZ"}"""
+    """Agrega o modifica una variable individual por clave y valor. Ejemplo: {"name": "patente", "value": "AA-123-ZZ"}"""
     var_name = payload.get("name")
     var_value = payload.get("value")
     if not var_name:
@@ -85,7 +67,6 @@ def add_truck_variable(truck_id: str, payload: Dict[str, Any] = Body(...)):
     if not success:
         raise HTTPException(status_code=404, detail="Camión no encontrado")
     return {"status": "variable_added", "truck": dao.get_truck_by_id(truck_id)}
-
 
 @app.delete("/api/trucks/{truck_id}/variables/{variable_name}", response_model=dict)
 def delete_truck_variable(truck_id: str, variable_name: str):
@@ -103,15 +84,14 @@ def delete_truck(truck_id: str):
         raise HTTPException(status_code=404, detail=f"No se encontró el camión {truck_id} para eliminar")
     return {"status": "deleted", "deleted_id": truck_id}
 
-
 # =========================================================================
 # ENDPOINTS DRIVERS (Choferes) - CRUD COMPLETO
 # =========================================================================
 
 @app.post("/api/drivers", response_model=dict, status_code=201)
-def create_driver(driver: Driver):
+def create_driver(driver_data: Dict[str, Any] = Body(...)):
     try:
-        driver_id = dao.add_driver(driver)
+        driver_id = dao.add_driver(driver_data)
         return {"status": "created", "inserted_id": driver_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -146,9 +126,9 @@ def delete_driver(driver_id: str):
 # =========================================================================
 
 @app.post("/api/routes", response_model=dict, status_code=201)
-def create_route(route: Route):
+def create_route(route_data: Dict[str, Any] = Body(...)):
     try:
-        route_id = dao.add_route(route)
+        route_id = dao.add_route(route_data)
         return {"status": "created", "inserted_id": route_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -183,9 +163,9 @@ def delete_route(route_id: str):
 # =========================================================================
 
 @app.post("/api/geofences", response_model=dict, status_code=201)
-def create_geofence(geofence: Geofence):
+def create_geofence(geofence_data: Dict[str, Any] = Body(...)):
     try:
-        gf_id = dao.add_geofence(geofence)
+        gf_id = dao.add_geofence(geofence_data)
         return {"status": "created", "inserted_id": gf_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -220,9 +200,9 @@ def delete_geofence(geofence_id: str):
 # =========================================================================
 
 @app.post("/api/telemetry", response_model=dict, status_code=201)
-def receive_telemetry(telemetry: Telemetry):
+def receive_telemetry(telemetry_data: Dict[str, Any] = Body(...)):
     try:
-        telemetry_id = dao.add_telemetry(telemetry)
+        telemetry_id = dao.add_telemetry(telemetry_data)
         return {"status": "success", "inserted_id": telemetry_id}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

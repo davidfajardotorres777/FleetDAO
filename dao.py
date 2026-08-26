@@ -6,11 +6,6 @@ from pymongo import MongoClient
 from pymongo.errors import PyMongoError, DuplicateKeyError
 
 from config_vars import MONGO_URI, DB_NAME
-from db_models.trucks import Truck, TruckUpdate
-from db_models.drivers import Driver, DriverUpdate
-from db_models.routes import Route, RouteUpdate
-from db_models.telemetry import Telemetry, TelemetryUpdate
-from db_models.geofence import Geofence, GeofenceUpdate
 
 # Configuración básica de logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -21,18 +16,23 @@ class FleetDAO:
     """
     Data Access Object (DAO) para el sistema de gestión de flotas y telemetría FleetDAO.
 
-    Proporciona una capa de abstracción sencilla y flexible para MongoDB.
-    Soporta 3 formas de uso para máxima facilidad:
-      1. Mediante argumentos kwargs: `dao.add_truck(brand="Volvo", capacity_tons=25, patente="AA123")`
-      2. Mediante diccionarios planos: `dao.add_truck({"brand": "Volvo", "capacity_tons": 25})`
-      3. Mediante modelos Pydantic: `dao.add_truck(Truck(brand="Volvo", capacity_tons=25))`
+    Capa de acceso a datos directa, limpia y 100% autónoma sobre MongoDB.
+    No requiere modelos externos ni clases adicionales: todo se gestiona directamente
+    con diccionarios de Python o argumentos clave-valor (`kwargs`).
+
+    ¿CÓMO AGREGAR O MODIFICAR CUALQUIER VARIABLE?
+    ---------------------------------------------
+    - Con kwargs: `dao.add_truck(brand="Volvo", capacity_tons=25.0, patente="AA123ZZ", mi_variable="valor")`
+    - Modificar campos: `dao.update_truck(truck_id, capacity_tons=40.0, estado="activo", mi_variable="nuevo")`
+    - Agregar variable individual: `dao.add_variable_to_truck(truck_id, "patente", "AA123ZZ")`
+    - Eliminar variable: `dao.delete_variable_from_truck(truck_id, "variable_obsoleta")`
 
     Colecciones cubiertas:
       - trucks (Camiones)
       - drivers (Choferes)
-      - routes (Rutas)
-      - telemetry (Telemetría)
-      - geofences (Geocercas)
+      - routes (Rutas Logísticas)
+      - telemetry (Telemetría IoT)
+      - geofences (Geocercas Espaciales)
     """
 
     def __init__(self):
@@ -148,24 +148,19 @@ class FleetDAO:
             raise
 
     # =========================================================================
-    # 1. TRUCKS (Camiones) - CRUD COMPLETO & FLEXIBLE
+    # 1. TRUCKS (Camiones) - CRUD COMPLETO
     # =========================================================================
 
-    def add_truck(self, truck: Optional[Union[Truck, Dict[str, Any]]] = None, **kwargs) -> str:
+    def add_truck(self, truck_data: Optional[Dict[str, Any]] = None, **kwargs) -> str:
         """
-        [CREATE] Registra un nuevo camión en el sistema.
+        [CREATE] Registra un nuevo camión.
         
-        Soporta 3 formas simples de uso:
-          - Con kwargs: `dao.add_truck(brand="Volvo", capacity_tons=25.0, patente="AA123")`
-          - Con dict: `dao.add_truck({"brand": "Volvo", "capacity_tons": 25.0})`
-          - Con modelo: `dao.add_truck(Truck(brand="Volvo", capacity_tons=25.0))`
+        Ejemplos:
+          dao.add_truck(brand="Volvo", capacity_tons=25.0, patente="AA123ZZ")
+          dao.add_truck({"brand": "Scania", "capacity_tons": 30.0})
         """
         try:
-            data = {}
-            if isinstance(truck, Truck):
-                data = truck.to_dict()
-            elif isinstance(truck, dict):
-                data = truck.copy()
+            data = dict(truck_data) if isinstance(truck_data, dict) else {}
             if kwargs:
                 data.update(kwargs)
 
@@ -200,26 +195,21 @@ class FleetDAO:
             logger.error(f"Error buscando camión por ID {truck_id}: {e}")
             return None
 
-    def update_truck(self, truck_id: str, update_data: Optional[Union[TruckUpdate, Dict[str, Any]]] = None, **kwargs) -> bool:
+    def update_truck(self, truck_id: str, update_data: Optional[Dict[str, Any]] = None, **kwargs) -> bool:
         """
-        [UPDATE / MODIFICAR] Modifica cualquier variable existente o agrega variables nuevas a un camión.
+        [UPDATE / MODIFICAR] Modifica campos o agrega variables nuevas a un camión.
         
-        Formas de uso:
-          - Con kwargs: `dao.update_truck(camion_id, capacity_tons=40, patente="AA123ZZ", mi_variable="Hola")`
-          - Con dict: `dao.update_truck(camion_id, {"capacity_tons": 40, "patente": "AA123ZZ"})`
+        Ejemplos:
+          dao.update_truck(camion_id, capacity_tons=40.0, patente="AA123ZZ", mi_variable="Hola")
+          dao.update_truck(camion_id, {"capacity_tons": 40.0, "patente": "AA123ZZ"})
         """
-        payload = {}
-        if isinstance(update_data, TruckUpdate):
-            payload.update(update_data.to_dict())
-        elif isinstance(update_data, dict):
-            payload.update(update_data)
+        payload = dict(update_data) if isinstance(update_data, dict) else {}
         if kwargs:
             payload.update(kwargs)
-
         return self.update_document("trucks", truck_id, payload)
 
     def add_variable_to_truck(self, truck_id: str, variable_name: str, value: Any) -> bool:
-        """[AGREGAR VARIABLE] Agrega una variable o propiedad nueva a un camión en el DAO."""
+        """[AGREGAR VARIABLE] Agrega una variable nueva a un camión."""
         return self.update_truck(truck_id, {variable_name: value})
 
     def modify_variable_truck(self, truck_id: str, variable_name: str, value: Any) -> bool:
@@ -227,7 +217,7 @@ class FleetDAO:
         return self.update_truck(truck_id, {variable_name: value})
 
     def set_truck_variables(self, truck_id: str, **variables) -> bool:
-        """[SET MULTIPLES VARIABLES] Setea múltiples variables usando kwargs."""
+        """[SET VARIABLES] Setea múltiples variables usando kwargs."""
         return self.update_truck(truck_id, **variables)
 
     def delete_variable_from_truck(self, truck_id: str, variable_name: str) -> bool:
@@ -250,15 +240,16 @@ class FleetDAO:
             raise
 
     # =========================================================================
-    # 2. DRIVERS (Choferes) - CRUD COMPLETO & FLEXIBLE
+    # 2. DRIVERS (Choferes) - CRUD COMPLETO
     # =========================================================================
 
-    def add_driver(self, driver: Optional[Union[Driver, Dict[str, Any]]] = None, **kwargs) -> str:
-        """[CREATE] Registra un nuevo chofer con dict, modelo o kwargs."""
-        data = driver.to_dict() if isinstance(driver, Driver) else (dict(driver) if isinstance(driver, dict) else {})
+    def add_driver(self, driver_data: Optional[Dict[str, Any]] = None, **kwargs) -> str:
+        """[CREATE] Registra un nuevo chofer."""
+        data = dict(driver_data) if isinstance(driver_data, dict) else {}
         if kwargs:
             data.update(kwargs)
         res = self._drivers.insert_one(data)
+        logger.info(f"Conductor insertado con ID: {res.inserted_id}")
         return str(res.inserted_id)
 
     def get_drivers(self) -> List[Dict[str, Any]]:
@@ -270,9 +261,9 @@ class FleetDAO:
         oid = self._to_object_id(driver_id)
         return self._clean_doc(self._drivers.find_one({"_id": oid})) if oid else None
 
-    def update_driver(self, driver_id: str, update_data: Optional[Union[DriverUpdate, Dict[str, Any]]] = None, **kwargs) -> bool:
-        """[UPDATE] Actualiza variables de un conductor con dict o kwargs."""
-        payload = update_data.to_dict() if isinstance(update_data, DriverUpdate) else (dict(update_data) if isinstance(update_data, dict) else {})
+    def update_driver(self, driver_id: str, update_data: Optional[Dict[str, Any]] = None, **kwargs) -> bool:
+        """[UPDATE] Actualiza variables de un conductor."""
+        payload = dict(update_data) if isinstance(update_data, dict) else {}
         if kwargs:
             payload.update(kwargs)
         return self.update_document("drivers", driver_id, payload)
@@ -283,15 +274,16 @@ class FleetDAO:
         return self._drivers.delete_one({"_id": oid}).deleted_count > 0 if oid else False
 
     # =========================================================================
-    # 3. ROUTES (Rutas Logísticas) - CRUD COMPLETO & FLEXIBLE
+    # 3. ROUTES (Rutas Logísticas) - CRUD COMPLETO
     # =========================================================================
 
-    def add_route(self, route: Optional[Union[Route, Dict[str, Any]]] = None, **kwargs) -> str:
+    def add_route(self, route_data: Optional[Dict[str, Any]] = None, **kwargs) -> str:
         """[CREATE] Asigna una nueva ruta logística."""
-        data = route.to_dict() if isinstance(route, Route) else (dict(route) if isinstance(route, dict) else {})
+        data = dict(route_data) if isinstance(route_data, dict) else {}
         if kwargs:
             data.update(kwargs)
         res = self._routes.insert_one(data)
+        logger.info(f"Ruta insertada con ID: {res.inserted_id}")
         return str(res.inserted_id)
 
     def get_routes(self) -> List[Dict[str, Any]]:
@@ -303,9 +295,9 @@ class FleetDAO:
         oid = self._to_object_id(route_id)
         return self._clean_doc(self._routes.find_one({"_id": oid})) if oid else None
 
-    def update_route(self, route_id: str, update_data: Optional[Union[RouteUpdate, Dict[str, Any]]] = None, **kwargs) -> bool:
+    def update_route(self, route_id: str, update_data: Optional[Dict[str, Any]] = None, **kwargs) -> bool:
         """[UPDATE] Modifica una ruta logística existente."""
-        payload = route_data = update_data.to_dict() if isinstance(update_data, RouteUpdate) else (dict(update_data) if isinstance(update_data, dict) else {})
+        payload = dict(update_data) if isinstance(update_data, dict) else {}
         if kwargs:
             payload.update(kwargs)
         return self.update_document("routes", route_id, payload)
@@ -316,15 +308,25 @@ class FleetDAO:
         return self._routes.delete_one({"_id": oid}).deleted_count > 0 if oid else False
 
     # =========================================================================
-    # 4. GEOFENCES (Geocercas Espaciales) - CRUD COMPLETO & FLEXIBLE
+    # 4. GEOFENCES (Geocercas Espaciales) - CRUD COMPLETO
     # =========================================================================
 
-    def add_geofence(self, geofence: Optional[Union[Geofence, Dict[str, Any]]] = None, **kwargs) -> str:
+    def add_geofence(self, geofence_data: Optional[Dict[str, Any]] = None, **kwargs) -> str:
         """[CREATE] Registra una nueva geocerca espacial."""
-        data = geofence.to_dict() if isinstance(geofence, Geofence) else (dict(geofence) if isinstance(geofence, dict) else {})
+        data = dict(geofence_data) if isinstance(geofence_data, dict) else {}
         if kwargs:
             data.update(kwargs)
+        
+        # Formatear geometría GeoJSON si viene polygon
+        if "polygon" in data and "geometry" not in data:
+            poly = data.pop("polygon")
+            data["geometry"] = {
+                "type": "Polygon",
+                "coordinates": [poly]
+            }
+
         res = self._geofences.insert_one(data)
+        logger.info(f"Geocerca insertada con ID: {res.inserted_id}")
         return str(res.inserted_id)
 
     def get_geofences(self) -> List[Dict[str, Any]]:
@@ -336,11 +338,17 @@ class FleetDAO:
         oid = self._to_object_id(geofence_id)
         return self._clean_doc(self._geofences.find_one({"_id": oid})) if oid else None
 
-    def update_geofence(self, geofence_id: str, update_data: Optional[Union[GeofenceUpdate, Dict[str, Any]]] = None, **kwargs) -> bool:
+    def update_geofence(self, geofence_id: str, update_data: Optional[Dict[str, Any]] = None, **kwargs) -> bool:
         """[UPDATE] Modifica una geocerca existente."""
-        payload = update_data.to_dict() if isinstance(update_data, GeofenceUpdate) else (dict(update_data) if isinstance(update_data, dict) else {})
+        payload = dict(update_data) if isinstance(update_data, dict) else {}
         if kwargs:
             payload.update(kwargs)
+        if "polygon" in payload:
+            poly = payload.pop("polygon")
+            payload["geometry"] = {
+                "type": "Polygon",
+                "coordinates": [poly]
+            }
         return self.update_document("geofences", geofence_id, payload)
 
     def delete_geofence(self, geofence_id: str) -> bool:
@@ -352,13 +360,32 @@ class FleetDAO:
     # 5. TELEMETRY (Lecturas IoT y Consultas Geoespaciales) - CRUD COMPLETO
     # =========================================================================
 
-    def add_telemetry(self, telemetry: Optional[Union[Telemetry, Dict[str, Any]]] = None, **kwargs) -> str:
+    def add_telemetry(self, telemetry_data: Optional[Dict[str, Any]] = None, **kwargs) -> str:
         """[CREATE] Registra un evento de telemetría IoT."""
-        data = telemetry.to_dict() if isinstance(telemetry, Telemetry) else (dict(telemetry) if isinstance(telemetry, dict) else {})
+        data = dict(telemetry_data) if isinstance(telemetry_data, dict) else {}
         if kwargs:
             data.update(kwargs)
-        res = self._telemetry.insert_one(data)
-        return str(res.inserted_id)
+
+        # Si vienen coordenadas lon y lat separadas, estructurarlas en GeoJSON Point
+        if "lon" in data and "lat" in data and "location" not in data:
+            lon = data.pop("lon")
+            lat = data.pop("lat")
+            if lon is not None and lat is not None:
+                data["location"] = {
+                    "type": "Point",
+                    "coordinates": [lon, lat]
+                }
+
+        try:
+            res = self._telemetry.insert_one(data)
+            return str(res.inserted_id)
+        except DuplicateKeyError:
+            truck_id = data.get("truck_id", "desconocido")
+            logger.warning(f"Evento de telemetría duplicado omitido para el camión {truck_id}")
+            raise
+        except PyMongoError as e:
+            logger.error(f"Error insertando telemetría: {e}")
+            raise
 
     def get_telemetry(self, truck_id: str, desde=None, hasta=None) -> List[Dict[str, Any]]:
         """[READ] Recupera la serie temporal de telemetría de un camión."""
@@ -377,11 +404,18 @@ class FleetDAO:
         oid = self._to_object_id(telemetry_id)
         return self._clean_doc(self._telemetry.find_one({"_id": oid})) if oid else None
 
-    def update_telemetry(self, telemetry_id: str, update_data: Optional[Union[TelemetryUpdate, Dict[str, Any]]] = None, **kwargs) -> bool:
+    def update_telemetry(self, telemetry_id: str, update_data: Optional[Dict[str, Any]] = None, **kwargs) -> bool:
         """[UPDATE] Modifica o agrega variables a un registro de telemetría."""
-        payload = update_data.to_dict() if isinstance(update_data, TelemetryUpdate) else (dict(update_data) if isinstance(update_data, dict) else {})
+        payload = dict(update_data) if isinstance(update_data, dict) else {}
         if kwargs:
             payload.update(kwargs)
+        if "lon" in payload and "lat" in payload:
+            lon = payload.pop("lon")
+            lat = payload.pop("lat")
+            payload["location"] = {
+                "type": "Point",
+                "coordinates": [lon, lat]
+            }
         return self.update_document("telemetry", telemetry_id, payload)
 
     def delete_telemetry(self, telemetry_id: str) -> bool:
