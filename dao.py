@@ -422,10 +422,12 @@ class FleetDAO:
             }
         }
 
-    def obtener_alertas_recientes(self, limite: int = 10) -> List[Dict[str, Any]]:
+    def obtener_alertas_recientes(self, limite: int = 10, limit: int = None) -> List[Dict[str, Any]]:
         """
         [ALERTAS RECIENTES] Recupera las últimas lecturas con exceso de velocidad, temperatura alta o poco combustible.
         """
+        cant_limite = limit if limit is not None else limite
+
         filtro_alertas = {
             "$or": [
                 {"speed_kmh": {"$gt": 100}},
@@ -433,7 +435,7 @@ class FleetDAO:
                 {"fuel_level_pct": {"$lt": 15}}
             ]
         }
-        cursor_alertas = self.telemetria.find(filtro_alertas).sort("timestamp", -1).limit(limite)
+        cursor_alertas = self.telemetria.find(filtro_alertas).sort("timestamp", -1).limit(cant_limite)
         return [self._limpiar_documento_para_json(doc) for doc in cursor_alertas]
 
     # =========================================================================
