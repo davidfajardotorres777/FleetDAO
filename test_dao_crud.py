@@ -12,7 +12,7 @@ def test_full_crud():
     # -------------------------------------------------------------------------
     # 1. PRUEBA DE CAMIONES (TRUCKS)
     # -------------------------------------------------------------------------
-    print("\n--- [1/5] PRUEBAS DE CAMIONES (TRUCKS) ---")
+    print("\n--- [1/6] PRUEBAS DE CAMIONES (TRUCKS) ---")
 
     # A. Crear (Create)
     print("1. Creando nuevo camión de prueba mediante kwargs directos...")
@@ -61,7 +61,7 @@ def test_full_crud():
     # -------------------------------------------------------------------------
     # 2. PRUEBA DE CHOFERES (DRIVERS)
     # -------------------------------------------------------------------------
-    print("\n--- [2/5] PRUEBAS DE CHOFERES (DRIVERS) ---")
+    print("\n--- [2/6] PRUEBAS DE CHOFERES (DRIVERS) ---")
     driver_id = dao.add_driver(name="Lucía Fernández", license_level="E", phone="+5491122334455")
     print(f"1. Chofer creado con ID: {driver_id}")
 
@@ -76,7 +76,7 @@ def test_full_crud():
     # -------------------------------------------------------------------------
     # 3. PRUEBA DE RUTAS (ROUTES)
     # -------------------------------------------------------------------------
-    print("\n--- [3/5] PRUEBAS DE RUTAS (ROUTES) ---")
+    print("\n--- [3/6] PRUEBAS DE RUTAS (ROUTES) ---")
     route_id = dao.add_route(origin="Salta", destination="Jujuy", truck_id="dummy_t", driver_id="dummy_d")
     print(f"1. Ruta creada con ID: {route_id}")
 
@@ -91,7 +91,7 @@ def test_full_crud():
     # -------------------------------------------------------------------------
     # 4. PRUEBA DE GEOCERCAS (GEOFENCES)
     # -------------------------------------------------------------------------
-    print("\n--- [4/5] PRUEBAS DE GEOCERCAS (GEOFENCES) ---")
+    print("\n--- [4/6] PRUEBAS DE GEOCERCAS (GEOFENCES) ---")
     gf_id = dao.add_geofence(
         name="Zona Puerto Buenos Aires",
         truck_id="dummy_t",
@@ -110,7 +110,7 @@ def test_full_crud():
     # -------------------------------------------------------------------------
     # 5. PRUEBA DE TELEMETRÍA (TELEMETRY)
     # -------------------------------------------------------------------------
-    print("\n--- [5/5] PRUEBAS DE TELEMETRÍA (TELEMETRY) ---")
+    print("\n--- [5/6] PRUEBAS DE TELEMETRÍA (TELEMETRY) ---")
     tel_id = dao.add_telemetry(
         truck_id="dummy_t",
         timestamp=datetime.now(),
@@ -130,6 +130,17 @@ def test_full_crud():
 
     dao.delete_telemetry(tel_id)
     print("3. Telemetría eliminada correctamente.")
+
+    # -------------------------------------------------------------------------
+    # 6. PRUEBA DE ANALÍTICA EJECUTIVA Y ALERTAS (ANALYTICS)
+    # -------------------------------------------------------------------------
+    print("\n--- [6/6] PRUEBAS DE RESUMEN DE FLOTA Y ALERTAS ---")
+    summary = dao.get_fleet_summary()
+    assert "total_trucks" in summary
+    print(f"  -> Resumen de flota obtenido correctamente: {summary}")
+
+    alerts = dao.get_recent_alerts(limit=5)
+    print(f"  -> {len(alerts)} Alertas recientes recuperadas.")
 
     dao.close()
 

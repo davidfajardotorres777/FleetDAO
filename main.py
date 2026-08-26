@@ -22,11 +22,25 @@ def read_root():
     }
 
 # =========================================================================
+# ENDPOINTS RESUMEN & ALERTAS (Executive Fleet Analytics)
+# =========================================================================
+
+@app.get("/api/fleet/summary", response_model=dict)
+def get_fleet_summary():
+    """Retorna un resumen ejecutivo general de la flota (totales de camiones, choferes y alertas activas)."""
+    return dao.get_fleet_summary()
+
+@app.get("/api/telemetry/alerts", response_model=List[dict])
+def get_recent_alerts(limit: int = 10):
+    """Retorna las lecturas de telemetría con alertas de velocidad, temperatura o combustible."""
+    return dao.get_recent_alerts(limit=limit)
+
+# =========================================================================
 # ENDPOINTS TRUCKS (Camiones) - CRUD COMPLETO
 # =========================================================================
 
 @app.post("/api/trucks", response_model=dict, status_code=201)
-def create_truck(truck_data: Dict[str, Any] = Body(..., example={"brand": "Volvo", "capacity_tons": 28.0, "patente": "AA-123-ZZ"})):
+def create_truck(truck_data: Dict[str, Any] = Body(..., examples=[{"brand": "Volvo", "capacity_tons": 28.0, "patente": "AA-123-ZZ"}])):
     """Crea un nuevo camión. Acepta cualquier propiedad o variable personalizada en el JSON."""
     try:
         truck_id = dao.add_truck(truck_data)

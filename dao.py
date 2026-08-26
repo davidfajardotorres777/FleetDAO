@@ -15,8 +15,8 @@ class FleetDAO:
     Data Access Object (DAO) para el sistema FleetDAO.
     
     Proporciona un acceso directo, limpio y dinámico a MongoDB.
-    Permite operaciones CRUD completas y la adición/modificación dinámica de cualquier
-    variable sobre las colecciones: trucks, drivers, routes, geofences y telemetry.
+    Permite operaciones CRUD completas, agregación analítica de métricas y la adición/modificación
+    dinámica de cualquier variable sobre las colecciones: trucks, drivers, routes, geofences y telemetry.
     """
 
     def __init__(self):
@@ -38,6 +38,12 @@ class FleetDAO:
         except PyMongoError as e:
             logger.error(f"Error al conectar con MongoDB: {e}")
             raise
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
     def close(self):
         """Cierra la conexión con MongoDB."""
@@ -293,3 +299,41 @@ class FleetDAO:
         ]
         res = list(self._telemetry.aggregate(pipeline))
         return self._clean(res[0]) if res else {}
+
+    # =========================================================================
+    # 6. ANALYTICS & EXECUTIVE DASHBOARD (Mejoras Pro de la Flota)
+    # =========================================================================
+
+    def get_fleet_summary(self) -> Dict[str, Any]:
+        """[ANALYTICS] Devuelve un resumen ejecutivo completo de la flota."""
+        total_trucks = self._trucks.count_documents({})
+        total_drivers = self._drivers.count_documents({})
+        total_routes = self._routes.count_documents({})
+        total_readings = self._telemetry.count_documents({})
+        
+        speed_alerts = self._telemetry.count_documents({"speed_kmh": {"$gt": 100}})
+        temp_alerts = self._telemetry.count_documents({"engine_temp_c": {"$gt": 95}})
+
+        return {
+            "total_trucks": total_trucks,
+            "total_drivers": total_drivers,
+            "total_routes": total_routes,
+            "total_telemetry_readings": total_readings,
+            "alerts": {
+                "speed_exceeded": speed_alerts,
+                "engine_overheat": temp_alerts,
+                "total_alerts": speed_alerts + temp_alerts
+            }
+        }
+
+    def get_recent_alerts(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """[ANALYTICS] Devuelve las últimas anomalías o alertas detectadas en la flota."""
+        query = {
+            "$or": [
+                {"speed_kmh": {"$gt": 100}},
+                {"engine_temp_c": {"$gt": 95}},
+                {"fuel_level_pct": {"$lt": 15}}
+            ]
+        }
+        cursor = self._telemetry.find(query).sort("timestamp", -1).limit(limit)
+        return [self._clean(d) for d in cursor]
