@@ -100,6 +100,52 @@ class FleetDAO:
         """Aplica `_clean_doc` sobre una lista de documentos."""
         return [cls._clean_doc(d) for d in docs if d]
 
+    # -------------------------------------------------------------------------
+    # Métodos Auxiliares Genéricos de Manipulación de Variables por Colección
+    # -------------------------------------------------------------------------
+
+    def update_document(self, collection_name: str, doc_id: str, update_data: Dict[str, Any]) -> bool:
+        """[GENÉRICO UPDATE] Modifica campos o agrega variables a cualquier documento en cualquier colección."""
+        try:
+            oid = self._to_object_id(doc_id)
+            if not oid:
+                return False
+            payload = update_data.copy()
+            payload.pop("_id", None)
+            payload.pop("id", None)
+            if not payload:
+                return False
+            res = self._db[collection_name].update_one({"_id": oid}, {"$set": payload})
+            return res.modified_count > 0 or res.matched_count > 0
+        except PyMongoError as e:
+            logger.error(f"Error actualizando documento {doc_id} en colección {collection_name}: {e}")
+            raise
+
+    def add_variable(self, collection_name: str, doc_id: str, variable_name: str, value: Any) -> bool:
+        """[GENÉRICO AGREGAR VARIABLE] Agrega una variable a cualquier colección."""
+        return self.update_document(collection_name, doc_id, {variable_name: value})
+
+    def modify_variable(self, collection_name: str, doc_id: str, variable_name: str, value: Any) -> bool:
+        """[GENÉRICO MODIFICAR VARIABLE] Modifica una variable en cualquier colección."""
+        return self.update_document(collection_name, doc_id, {variable_name: value})
+
+    def set_variables(self, collection_name: str, doc_id: str, **variables) -> bool:
+        """[GENÉRICO SET VARIABLES] Agrega/modifica múltiples variables usando kwargs en cualquier colección."""
+        return self.update_document(collection_name, doc_id, variables)
+
+    def delete_variable(self, collection_name: str, doc_id: str, variable_name: str) -> bool:
+        """[GENÉRICO ELIMINAR VARIABLE] Elimina una variable usando $unset en cualquier colección."""
+        try:
+            oid = self._to_object_id(doc_id)
+            if not oid:
+                return False
+            res = self._db[collection_name].update_one({"_id": oid}, {"$unset": {variable_name: ""}})
+            return res.modified_count > 0
+        except PyMongoError as e:
+            logger.error(f"Error eliminando variable {variable_name} en {collection_name} ID {doc_id}: {e}")
+            raise
+
+
     # =========================================================================
     # 1. TRUCKS (Camiones) - CRUD COMPLETO
     # =========================================================================

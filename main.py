@@ -55,6 +55,7 @@ def get_truck(truck_id: str):
     return truck
 
 @app.put("/api/trucks/{truck_id}", response_model=dict)
+@app.patch("/api/trucks/{truck_id}", response_model=dict)
 def update_truck(truck_id: str, update_data: Dict[str, Any] = Body(...)):
     """
     Modifica un camión o agrega variables nuevas dinámicamente.
@@ -73,6 +74,26 @@ def update_truck(truck_id: str, update_data: Dict[str, Any] = Body(...)):
     updated_truck = dao.get_truck_by_id(truck_id)
     return {"status": "updated", "truck": updated_truck}
 
+@app.post("/api/trucks/{truck_id}/variables", response_model=dict)
+def add_truck_variable(truck_id: str, payload: Dict[str, Any] = Body(..., example={"name": "patente", "value": "AA-123-ZZ"})):
+    """Agrega o modifica una variable individual por clave y valor."""
+    var_name = payload.get("name")
+    var_value = payload.get("value")
+    if not var_name:
+        raise HTTPException(status_code=400, detail="El cuerpo debe incluir el campo 'name'")
+    success = dao.add_variable_to_truck(truck_id, var_name, var_value)
+    if not success:
+        raise HTTPException(status_code=404, detail="Camión no encontrado")
+    return {"status": "variable_added", "truck": dao.get_truck_by_id(truck_id)}
+
+@app.delete("/api/trucks/{truck_id}/variables/{variable_name}", response_model=dict)
+def delete_truck_variable(truck_id: str, variable_name: str):
+    """Elimina una variable personalizada específica de un camión."""
+    success = dao.delete_variable_from_truck(truck_id, variable_name)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"No se encontró la variable '{variable_name}' en el camión {truck_id}")
+    return {"status": "variable_deleted", "truck": dao.get_truck_by_id(truck_id)}
+
 @app.delete("/api/trucks/{truck_id}", response_model=dict)
 def delete_truck(truck_id: str):
     """Elimina un camión por su ID."""
@@ -80,6 +101,7 @@ def delete_truck(truck_id: str):
     if not success:
         raise HTTPException(status_code=404, detail=f"No se encontró el camión {truck_id} para eliminar")
     return {"status": "deleted", "deleted_id": truck_id}
+
 
 # =========================================================================
 # ENDPOINTS DRIVERS (Choferes) - CRUD COMPLETO
