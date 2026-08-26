@@ -75,8 +75,8 @@ def update_truck(truck_id: str, update_data: Dict[str, Any] = Body(...)):
     return {"status": "updated", "truck": updated_truck}
 
 @app.post("/api/trucks/{truck_id}/variables", response_model=dict)
-def add_truck_variable(truck_id: str, payload: Dict[str, Any] = Body(..., example={"name": "patente", "value": "AA-123-ZZ"})):
-    """Agrega o modifica una variable individual por clave y valor."""
+def add_truck_variable(truck_id: str, payload: Dict[str, Any] = Body(...)):
+    """Agrega o modifica una variable individual por clave y valor. Cuerpo esperado: {"name": "patente", "value": "AA-123-ZZ"}"""
     var_name = payload.get("name")
     var_value = payload.get("value")
     if not var_name:
@@ -85,6 +85,7 @@ def add_truck_variable(truck_id: str, payload: Dict[str, Any] = Body(..., exampl
     if not success:
         raise HTTPException(status_code=404, detail="Camión no encontrado")
     return {"status": "variable_added", "truck": dao.get_truck_by_id(truck_id)}
+
 
 @app.delete("/api/trucks/{truck_id}/variables/{variable_name}", response_model=dict)
 def delete_truck_variable(truck_id: str, variable_name: str):
