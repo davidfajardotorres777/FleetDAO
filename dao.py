@@ -1,9 +1,7 @@
 import logging
 from typing import List, Dict, Any, Optional
-from datetime import datetime
 from bson import ObjectId
-from pymongo import MongoClient, ASCENDING, DESCENDING
-from pymongo.errors import PyMongoError, DuplicateKeyError
+from pymongo import MongoClient
 
 from config_vars import MONGO_URI, DB_NAME
 
@@ -13,43 +11,34 @@ logger = logging.getLogger("FleetDAO")
 
 class FleetDAO:
     """
-    Data Access Object (DAO) Principal para el sistema de gestión de flotas FleetDAO.
-
-    Proporciona una abstracción limpia, directa y libre de esquemas sobre la base de datos 'fleet_db' en MongoDB.
-
-    Colecciones Administradas:
-      - trucks     : Camiones de la flota
-      - drivers    : Choferes asignados
-      - routes     : Rutas logísticas
-      - geofences  : Geocercas espaciales GeoJSON
-      - telemetry  : Lecturas IoT y series temporales GPS
-
-    Capacidades Destacadas:
-      1. CRUD completo e inmediato para todas las colecciones.
-      2. Adición y modificación dinámica de cualquier variable en tiempo real (`$set` y `$unset`).
-      3. Consultas geoespaciales nativas (`2dsphere`, `$near`, `$geoWithin`).
-      4. Inserción masiva de telemetría por lotes (Batch Ingestion).
-      5. Agregaciones analíticas de rendimiento y diagnósticos de alertas.
+    DAO (Data Access Object) para la gestión de flotas y telemetría en MongoDB.
+    Diseño simple, ordenado, fácil de entender y con variables en español.
     """
 
     def __init__(self):
-        """Inicializa la conexión con MongoDB y configura los índices optimizados."""
+        """Conecta a MongoDB y obtiene referencias a las colecciones principales."""
         try:
-            self.client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-            self.db = self.client[DB_NAME]
+            self.cliente = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+            self.db = self.cliente[DB_NAME]
 
-            # Referencias a las Colecciones de MongoDB
-            self.trucks = self.db["trucks"]
-            self.drivers = self.db["drivers"]
-            self.routes = self.db["routes"]
-            self.geofences = self.db["geofences"]
-            self.telemetry = self.db["telemetry"]
+            # Colecciones principales en español
+            self.camiones = self.db["trucks"]
+            self.choferes = self.db["drivers"]
+            self.rutas = self.db["routes"]
+            self.geocercas = self.db["geofences"]
+            self.telemetria = self.db["telemetry"]
 
-            # Configuración de Índices Nativa
-            self.telemetry.create_index([("truck_id", ASCENDING), ("timestamp", ASCENDING)], unique=True)
-            self.telemetry.create_index([("location", "2dsphere")])
-            self.trucks.create_index([("patente", ASCENDING)], sparse=True)
-            logger.info("Conexión exitosa a MongoDB ('fleet_db') e índices optimizados.")
+            # Aliases de colecciones en inglés para compatibilidad
+            self.trucks = self.camiones
+            self.drivers = self.choferes
+            self.routes = self.rutas
+            self.geofences = self.geocercas
+            self.telemetry = self.telemetria
+
+            # Índices de aceleración
+            self.telemetria.create_index([("truck_id", 1), ("timestamp", 1)], unique=True)
+            self.telemetria.create_index([("location", "2dsphere")])
+            logger.info("Conexión exitosa a MongoDB ('fleet_db') e índices verificados.")
         except Exception as e:
             logger.error(f"Error conectando a MongoDB: {e}")
             raise
@@ -61,337 +50,254 @@ class FleetDAO:
         self.close()
 
     def close(self):
-        """Cierra la conexión activa con el servidor MongoDB."""
-        self.client.close()
+        """Cierra la conexión activa con MongoDB."""
+        self.cliente.close()
         logger.info("Conexión a MongoDB cerrada.")
 
     # -------------------------------------------------------------------------
-    # Operaciones Internas y Normalización de ObjectId
+    # Métodos Auxiliares Internos
     # -------------------------------------------------------------------------
 
     @staticmethod
-    def _oid(id_str: str) -> Optional[ObjectId]:
-        """Convierte una cadena a ObjectId de MongoDB de forma segura."""
+    def _convertir_oid(id_str: str) -> Optional[ObjectId]:
+        """Convierte una cadena de texto a ObjectId de MongoDB."""
         if not id_str:
             return None
         return id_str if isinstance(id_str, ObjectId) else (ObjectId(str(id_str)) if ObjectId.is_valid(str(id_str)) else None)
 
     @staticmethod
-    def _clean(doc: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        """Mapea '_id' de MongoDB a una cadena serializable en JSON."""
+    def _limpiar_documento(doc: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Convierte el '_id' de MongoDB a string para que sea serializable en JSON."""
         if doc and "_id" in doc:
             doc["_id"] = str(doc["_id"])
             doc["id"] = doc["_id"]
         return doc
 
-    def _insert(self, coll: str, data: Dict[str, Any] = None, **kwargs) -> str:
-        """Inserta un nuevo documento en cualquier colección aceptando dict o kwargs."""
-        payload = dict(data) if isinstance(data, dict) else {}
+    # -------------------------------------------------------------------------
+    # Operaciones Genéricas Básicas (CRUD Genérico)
+    # -------------------------------------------------------------------------
+
+    def insertar(self, coleccion: str, datos: Dict[str, Any] = None, **kwargs) -> str:
+        """Inserta un nuevo documento en la colección indicada."""
+        payload = dict(datos) if isinstance(datos, dict) else {}
         payload.update(kwargs)
         if not payload:
             raise ValueError("Se requieren datos para realizar la inserción.")
-        return str(self.db[coll].insert_one(payload).inserted_id)
+        return str(self.db[coleccion].insert_one(payload).inserted_id)
 
-    def _get_all(self, coll: str, query: Dict[str, Any] = None) -> List[Dict[str, Any]]:
-        """Recupera todos los documentos de una colección."""
-        return [self._clean(d) for d in self.db[coll].find(query or {})]
+    def obtener_todos(self, coleccion: str, filtro: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+        """Obtiene la lista completa de documentos de una colección."""
+        return [self._limpiar_documento(d) for d in self.db[coleccion].find(filtro or {})]
 
-    def _get_by_id(self, coll: str, doc_id: str) -> Optional[Dict[str, Any]]:
-        """Obtiene un documento por su ID."""
-        oid = self._oid(doc_id)
-        return self._clean(self.db[coll].find_one({"_id": oid})) if oid else None
+    def obtener_por_id(self, coleccion: str, doc_id: str) -> Optional[Dict[str, Any]]:
+        """Obtiene un documento por su ID de MongoDB."""
+        oid = self._convertir_oid(doc_id)
+        return self._limpiar_documento(self.db[coleccion].find_one({"_id": oid})) if oid else None
 
-    def _update(self, coll: str, doc_id: str, data: Dict[str, Any] = None, **kwargs) -> bool:
-        """Modifica o agrega cualquier variable a un documento usando `$set`."""
-        oid = self._oid(doc_id)
+    def actualizar(self, coleccion: str, doc_id: str, datos: Dict[str, Any] = None, **kwargs) -> bool:
+        """Modifica o agrega campos/variables usando el operador $set de MongoDB."""
+        oid = self._convertir_oid(doc_id)
         if not oid:
             return False
-        payload = dict(data) if isinstance(data, dict) else {}
+        payload = dict(datos) if isinstance(datos, dict) else {}
         payload.update(kwargs)
         payload.pop("_id", None)
         payload.pop("id", None)
         if not payload:
             return False
-        res = self.db[coll].update_one({"_id": oid}, {"$set": payload})
+        res = self.db[coleccion].update_one({"_id": oid}, {"$set": payload})
         return res.modified_count > 0 or res.matched_count > 0
 
-    def _delete(self, coll: str, doc_id: str) -> bool:
-        """Elimina un documento de la colección."""
-        oid = self._oid(doc_id)
-        return self.db[coll].delete_one({"_id": oid}).deleted_count > 0 if oid else False
+    def eliminar(self, coleccion: str, doc_id: str) -> bool:
+        """Elimina un documento por su ID."""
+        oid = self._convertir_oid(doc_id)
+        return self.db[coleccion].delete_one({"_id": oid}).deleted_count > 0 if oid else False
 
-    def _delete_field(self, coll: str, doc_id: str, field_name: str) -> bool:
-        """Elimina una variable específica de un documento usando `$unset`."""
-        oid = self._oid(doc_id)
-        return self.db[coll].update_one({"_id": oid}, {"$unset": {field_name: ""}}).modified_count > 0 if oid else False
-
-    # -------------------------------------------------------------------------
-    # Operaciones Genéricas de Variables Dinámicas por Colección
-    # -------------------------------------------------------------------------
-
-    def search_by_variable(self, coll: str, key: str, value: Any) -> List[Dict[str, Any]]:
-        """Filtra documentos en cualquier colección por el valor de una variable clave."""
-        return self._get_all(coll, {key: value})
-
-    def add_variable(self, coll: str, doc_id: str, var_name: str, val: Any) -> bool:
-        return self._update(coll, doc_id, **{var_name: val})
-
-    def modify_variable(self, coll: str, doc_id: str, var_name: str, val: Any) -> bool:
-        return self._update(coll, doc_id, **{var_name: val})
-
-    def set_variables(self, coll: str, doc_id: str, **variables) -> bool:
-        return self._update(coll, doc_id, **variables)
-
-    def delete_variable(self, coll: str, doc_id: str, var_name: str) -> bool:
-        return self._delete_field(coll, doc_id, var_name)
+    def eliminar_campo(self, coleccion: str, doc_id: str, nombre_campo: str) -> bool:
+        """Elimina una variable o campo específico usando $unset en MongoDB."""
+        oid = self._convertir_oid(doc_id)
+        return self.db[coleccion].update_one({"_id": oid}, {"$unset": {nombre_campo: ""}}).modified_count > 0 if oid else False
 
     # =========================================================================
-    # 1. TRUCKS (Camiones) - CRUD & VARIABLES DINÁMICAS
+    # 1. CAMIONES (CRUD & Variables Dinámicas en Español)
     # =========================================================================
 
-    def add_truck(self, truck_data: Dict[str, Any] = None, **kwargs) -> str:
-        """
-        [CREATE] Registra un nuevo camión en la base de datos.
-        
-        Ejemplos de uso:
-          dao.add_truck(brand="Volvo", capacity_tons=25.0, patente="AA123ZZ")
-          dao.add_truck({"brand": "Scania", "capacity_tons": 30.0})
-        """
-        return self._insert("trucks", truck_data, **kwargs)
+    def agregar_camion(self, datos: Dict[str, Any] = None, **kwargs) -> str:
+        """Crea un nuevo camión en la base de datos."""
+        return self.insertar("trucks", datos, **kwargs)
 
-    def get_trucks(self) -> List[Dict[str, Any]]:
-        """[READ ALL] Retorna la lista completa de camiones."""
-        return self._get_all("trucks")
+    def obtener_camiones(self) -> List[Dict[str, Any]]:
+        """Retorna todos los camiones registrados."""
+        return self.obtener_todos("trucks")
 
-    def get_truck_by_id(self, truck_id: str) -> Optional[Dict[str, Any]]:
-        """[READ ONE] Obtiene los datos de un camión por su ID."""
-        return self._get_by_id("trucks", truck_id)
+    def obtener_camion_por_id(self, camion_id: str) -> Optional[Dict[str, Any]]:
+        """Obtiene los datos de un camión por su ID."""
+        return self.obtener_por_id("trucks", camion_id)
 
-    def get_trucks_by_variable(self, key: str, value: Any) -> List[Dict[str, Any]]:
-        """[SEARCH] Filtra camiones por cualquier variable o atributo personalizado."""
-        return self.search_by_variable("trucks", key, value)
+    def buscar_camiones_por_variable(self, clave: str, valor: Any) -> List[Dict[str, Any]]:
+        """Busca camiones filtrando por cualquier variable dinámica."""
+        return self.obtener_todos("trucks", {clave: valor})
 
-    def update_truck(self, truck_id: str, update_data: Dict[str, Any] = None, **kwargs) -> bool:
-        """[UPDATE] Modifica o agrega cualquier variable a un camión en tiempo real."""
-        return self._update("trucks", truck_id, update_data, **kwargs)
+    def actualizar_camion(self, camion_id: str, datos: Dict[str, Any] = None, **kwargs) -> bool:
+        """Actualiza valores o agrega nuevas variables a un camión."""
+        return self.actualizar("trucks", camion_id, datos, **kwargs)
 
-    def delete_truck(self, truck_id: str) -> bool:
-        """[DELETE] Elimina un camión por su ID."""
-        return self._delete("trucks", truck_id)
+    def eliminar_camion(self, camion_id: str) -> bool:
+        """Elimina un camión por su ID."""
+        return self.eliminar("trucks", camion_id)
 
-    def add_variable_to_truck(self, truck_id: str, var_name: str, value: Any) -> bool:
-        """[VARIABLE ADD] Agrega una variable personalizada a un camión."""
-        return self.update_truck(truck_id, **{var_name: value})
+    def agregar_variable_camion(self, camion_id: str, nombre_variable: str, valor: Any) -> bool:
+        """Agrega una nueva variable personalizada a un camión."""
+        return self.actualizar_camion(camion_id, **{nombre_variable: valor})
 
-    def modify_variable_truck(self, truck_id: str, var_name: str, value: Any) -> bool:
-        """[VARIABLE MODIFY] Modifica una variable de un camión."""
-        return self.update_truck(truck_id, **{var_name: value})
-
-    def set_truck_variables(self, truck_id: str, **variables) -> bool:
-        """[VARIABLE SET] Modifica múltiples variables en un camión."""
-        return self.update_truck(truck_id, **variables)
-
-    def delete_variable_from_truck(self, truck_id: str, var_name: str) -> bool:
-        """[VARIABLE DELETE] Elimina una variable específica de un camión."""
-        return self._delete_field("trucks", truck_id, var_name)
+    def eliminar_variable_camion(self, camion_id: str, nombre_variable: str) -> bool:
+        """Elimina una variable específica de un camión."""
+        return self.eliminar_campo("trucks", camion_id, nombre_variable)
 
     # =========================================================================
-    # 2. DRIVERS (Choferes) - CRUD COMPLETO
+    # 2. CHOFERES (CRUD en Español)
     # =========================================================================
 
-    def add_driver(self, driver_data: Dict[str, Any] = None, **kwargs) -> str:
-        """[CREATE] Registra un nuevo chofer."""
-        return self._insert("drivers", driver_data, **kwargs)
+    def agregar_chofer(self, datos: Dict[str, Any] = None, **kwargs) -> str:
+        return self.insertar("drivers", datos, **kwargs)
 
-    def get_drivers(self) -> List[Dict[str, Any]]:
-        """[READ ALL] Lista todos los conductores."""
-        return self._get_all("drivers")
+    def obtener_choferes(self) -> List[Dict[str, Any]]:
+        return self.obtener_todos("drivers")
 
-    def get_driver_by_id(self, driver_id: str) -> Optional[Dict[str, Any]]:
-        """[READ ONE] Obtiene los datos de un chofer por ID."""
-        return self._get_by_id("drivers", driver_id)
+    def obtener_chofer_por_id(self, chofer_id: str) -> Optional[Dict[str, Any]]:
+        return self.obtener_por_id("drivers", chofer_id)
 
-    def update_driver(self, driver_id: str, update_data: Dict[str, Any] = None, **kwargs) -> bool:
-        """[UPDATE] Actualiza los datos de un chofer."""
-        return self._update("drivers", driver_id, update_data, **kwargs)
+    def actualizar_chofer(self, chofer_id: str, datos: Dict[str, Any] = None, **kwargs) -> bool:
+        return self.actualizar("drivers", chofer_id, datos, **kwargs)
 
-    def delete_driver(self, driver_id: str) -> bool:
-        """[DELETE] Elimina un chofer por ID."""
-        return self._delete("drivers", driver_id)
+    def eliminar_chofer(self, chofer_id: str) -> bool:
+        return self.eliminar("drivers", chofer_id)
 
     # =========================================================================
-    # 3. ROUTES (Rutas Logísticas) - CRUD COMPLETO
+    # 3. RUTAS (CRUD en Español)
     # =========================================================================
 
-    def add_route(self, route_data: Dict[str, Any] = None, **kwargs) -> str:
-        """[CREATE] Asigna una nueva ruta logística."""
-        return self._insert("routes", route_data, **kwargs)
+    def agregar_ruta(self, datos: Dict[str, Any] = None, **kwargs) -> str:
+        return self.insertar("routes", datos, **kwargs)
 
-    def get_routes(self) -> List[Dict[str, Any]]:
-        """[READ ALL] Lista todas las rutas asignadas."""
-        return self._get_all("routes")
+    def obtener_rutas(self) -> List[Dict[str, Any]]:
+        return self.obtener_todos("routes")
 
-    def get_route_by_id(self, route_id: str) -> Optional[Dict[str, Any]]:
-        """[READ ONE] Obtiene una ruta por ID."""
-        return self._get_by_id("routes", route_id)
+    def obtener_ruta_por_id(self, ruta_id: str) -> Optional[Dict[str, Any]]:
+        return self.obtener_por_id("routes", ruta_id)
 
-    def update_route(self, route_id: str, update_data: Dict[str, Any] = None, **kwargs) -> bool:
-        """[UPDATE] Modifica una ruta logística."""
-        return self._update("routes", route_id, update_data, **kwargs)
+    def actualizar_ruta(self, ruta_id: str, datos: Dict[str, Any] = None, **kwargs) -> bool:
+        return self.actualizar("routes", ruta_id, datos, **kwargs)
 
-    def delete_route(self, route_id: str) -> bool:
-        """[DELETE] Elimina una ruta logística."""
-        return self._delete("routes", route_id)
+    def eliminar_ruta(self, ruta_id: str) -> bool:
+        return self.eliminar("routes", ruta_id)
 
     # =========================================================================
-    # 4. GEOFENCES (Geocercas Espaciales) - CRUD COMPLETO
+    # 4. GEOCERCAS (CRUD en Español)
     # =========================================================================
 
-    def add_geofence(self, geofence_data: Dict[str, Any] = None, **kwargs) -> str:
-        """[CREATE] Registra una geocerca espacial GeoJSON."""
-        data = dict(geofence_data) if isinstance(geofence_data, dict) else {}
-        data.update(kwargs)
-        if "polygon" in data and "geometry" not in data:
-            data["geometry"] = {"type": "Polygon", "coordinates": [data.pop("polygon")]}
-        return self._insert("geofences", data)
+    def agregar_geocerca(self, datos: Dict[str, Any] = None, **kwargs) -> str:
+        payload = dict(datos) if isinstance(datos, dict) else {}
+        payload.update(kwargs)
+        if "polygon" in payload and "geometry" not in payload:
+            payload["geometry"] = {"type": "Polygon", "coordinates": [payload.pop("polygon")]}
+        return self.insertar("geofences", payload)
 
-    def get_geofences(self) -> List[Dict[str, Any]]:
-        """[READ ALL] Lista todas las geocercas."""
-        return self._get_all("geofences")
+    def obtener_geocercas(self) -> List[Dict[str, Any]]:
+        return self.obtener_todos("geofences")
 
-    def get_geofence_by_id(self, geofence_id: str) -> Optional[Dict[str, Any]]:
-        """[READ ONE] Obtiene una geocerca por ID."""
-        return self._get_by_id("geofences", geofence_id)
+    def obtener_geocerca_por_id(self, geocerca_id: str) -> Optional[Dict[str, Any]]:
+        return self.obtener_por_id("geofences", geocerca_id)
 
-    def update_geofence(self, geofence_id: str, update_data: Dict[str, Any] = None, **kwargs) -> bool:
-        """[UPDATE] Modifica una geocerca."""
-        data = dict(update_data) if isinstance(update_data, dict) else {}
-        data.update(kwargs)
-        if "polygon" in data:
-            data["geometry"] = {"type": "Polygon", "coordinates": [data.pop("polygon")]}
-        return self._update("geofences", geofence_id, data)
+    def actualizar_geocerca(self, geocerca_id: str, datos: Dict[str, Any] = None, **kwargs) -> bool:
+        payload = dict(datos) if isinstance(datos, dict) else {}
+        payload.update(kwargs)
+        if "polygon" in payload:
+            payload["geometry"] = {"type": "Polygon", "coordinates": [payload.pop("polygon")]}
+        return self.actualizar("geofences", geocerca_id, payload)
 
-    def delete_geofence(self, geofence_id: str) -> bool:
-        """[DELETE] Elimina una geocerca por ID."""
-        return self._delete("geofences", geofence_id)
+    def eliminar_geocerca(self, geocerca_id: str) -> bool:
+        return self.eliminar("geofences", geocerca_id)
 
     # =========================================================================
-    # 5. TELEMETRY (Telemetría IoT, Geo-Consultas e Inserción Masiva)
+    # 5. TELEMETRÍA & RESUMEN DE FLOTA
     # =========================================================================
 
-    def add_telemetry(self, telemetry_data: Dict[str, Any] = None, **kwargs) -> str:
-        """[CREATE] Guarda un evento de telemetría IoT."""
-        data = dict(telemetry_data) if isinstance(telemetry_data, dict) else {}
-        data.update(kwargs)
-        if "lon" in data and "lat" in data and "location" not in data:
-            lon, lat = data.pop("lon"), data.pop("lat")
+    def agregar_telemetria(self, datos: Dict[str, Any] = None, **kwargs) -> str:
+        payload = dict(datos) if isinstance(datos, dict) else {}
+        payload.update(kwargs)
+        if "lon" in payload and "lat" in payload and "location" not in payload:
+            lon, lat = payload.pop("lon"), payload.pop("lat")
             if lon is not None and lat is not None:
-                data["location"] = {"type": "Point", "coordinates": [lon, lat]}
-        return self._insert("telemetry", data)
+                payload["location"] = {"type": "Point", "coordinates": [lon, lat]}
+        return self.insertar("telemetry", payload)
 
-    def bulk_add_telemetry(self, readings: List[Dict[str, Any]]) -> List[str]:
-        """[BATCH INGESTION] Inserción masiva eficiente de eventos de telemetría en MongoDB."""
-        if not readings:
-            return []
-        formatted = []
-        for r in readings:
-            item = dict(r)
-            if "lon" in item and "lat" in item and "location" not in item:
-                lon, lat = item.pop("lon"), item.pop("lat")
-                if lon is not None and lat is not None:
-                    item["location"] = {"type": "Point", "coordinates": [lon, lat]}
-            formatted.append(item)
-        res = self.telemetry.insert_many(formatted, ordered=False)
-        return [str(i) for i in res.inserted_ids]
+    def obtener_telemetria(self, camion_id: str) -> List[Dict[str, Any]]:
+        return [self._limpiar_documento(d) for d in self.telemetria.find({"truck_id": camion_id}).sort("timestamp", 1)]
 
-    def get_telemetry(self, truck_id: str, desde=None, hasta=None) -> List[Dict[str, Any]]:
-        """[READ] Recupera la serie temporal de telemetría de un camión."""
-        query = {"truck_id": truck_id}
-        if desde or hasta:
-            query["timestamp"] = {}
-            if desde:
-                query["timestamp"]["$gte"] = desde
-            if hasta:
-                query["timestamp"]["$lte"] = hasta
-        return [self._clean(d) for d in self.telemetry.find(query).sort("timestamp", ASCENDING)]
+    def obtener_telemetria_por_id(self, telemetria_id: str) -> Optional[Dict[str, Any]]:
+        return self.obtener_por_id("telemetry", telemetria_id)
 
-    def get_telemetry_by_id(self, telemetry_id: str) -> Optional[Dict[str, Any]]:
-        """[READ ONE] Obtiene una lectura de telemetría por ID."""
-        return self._get_by_id("telemetry", telemetry_id)
+    def actualizar_telemetria(self, telemetria_id: str, datos: Dict[str, Any] = None, **kwargs) -> bool:
+        return self.actualizar("telemetry", telemetria_id, datos, **kwargs)
 
-    def update_telemetry(self, telemetry_id: str, update_data: Dict[str, Any] = None, **kwargs) -> bool:
-        """[UPDATE] Modifica o agrega variables a una lectura de telemetría."""
-        data = dict(update_data) if isinstance(update_data, dict) else {}
-        data.update(kwargs)
-        if "lon" in data and "lat" in data:
-            data["location"] = {"type": "Point", "coordinates": [data.pop("lon"), data.pop("lat")]}
-        return self._update("telemetry", telemetry_id, data)
+    def eliminar_telemetria(self, telemetria_id: str) -> bool:
+        return self.eliminar("telemetry", telemetria_id)
 
-    def delete_telemetry(self, telemetry_id: str) -> bool:
-        """[DELETE] Elimina una lectura de telemetría por ID."""
-        return self._delete("telemetry", telemetry_id)
-
-    def get_telemetry_near(self, truck_id: str, lon: float, lat: float, max_distance_meters: float = 5000.0) -> List[Dict[str, Any]]:
-        """[GEO-SPATIAL $near] Consulta espacial en índice 2dsphere para buscar posiciones dentro de un radio."""
-        query = {
-            "truck_id": truck_id,
-            "location": {
-                "$near": {
-                    "$geometry": {"type": "Point", "coordinates": [lon, lat]},
-                    "$maxDistance": max_distance_meters
-                }
-            }
-        }
-        return [self._clean(d) for d in self.telemetry.find(query)]
-
-    def get_telemetry_in_polygon(self, truck_id: str, polygon: List[List[float]]) -> List[Dict[str, Any]]:
-        """[GEO-SPATIAL $geoWithin] Verifica qué lecturas GPS ocurrieron dentro de un polígono GeoJSON."""
-        query = {
-            "truck_id": truck_id,
-            "location": {
-                "$geoWithin": {
-                    "$geometry": {"type": "Polygon", "coordinates": [polygon]}
-                }
-            }
-        }
-        return [self._clean(d) for d in self.telemetry.find(query)]
-
-    def get_truck_statistics(self, truck_id: str) -> Dict[str, Any]:
-        """[ANALYTICS $aggregate] Pipeline de agregación para calcular velocidad promedio, temp máxima y combustible."""
-        pipeline = [
-            {"$match": {"truck_id": truck_id}},
-            {"$group": {
-                "_id": "$truck_id",
-                "velocidad_promedio": {"$avg": "$speed_kmh"},
-                "temp_maxima": {"$max": "$engine_temp_c"},
-                "combustible_promedio": {"$avg": "$fuel_level_pct"},
-                "total_lecturas": {"$sum": 1}
-            }}
-        ]
-        res = list(self.telemetry.aggregate(pipeline))
-        return self._clean(res[0]) if res else {}
-
-    # =========================================================================
-    # 6. ANALYTICS & DASHBOARD SUMMARY
-    # =========================================================================
-
-    def get_fleet_summary(self) -> Dict[str, Any]:
-        """[ANALYTICS] Resumen analítico ejecutivo completo de la flota."""
-        speed_alerts = self.telemetry.count_documents({"speed_kmh": {"$gt": 100}})
-        temp_alerts = self.telemetry.count_documents({"engine_temp_c": {"$gt": 95}})
+    def obtener_resumen_flota(self) -> Dict[str, Any]:
+        """Calcula el resumen de totales y alertas de la flota."""
+        excesos = self.telemetria.count_documents({"speed_kmh": {"$gt": 100}})
+        temp_altas = self.telemetria.count_documents({"engine_temp_c": {"$gt": 95}})
         return {
-            "total_trucks": self.trucks.count_documents({}),
-            "total_drivers": self.drivers.count_documents({}),
-            "total_routes": self.routes.count_documents({}),
-            "total_telemetry_readings": self.telemetry.count_documents({}),
-            "alerts": {
-                "speed_exceeded": speed_alerts,
-                "engine_overheat": temp_alerts,
-                "total_alerts": speed_alerts + temp_alerts
+            "total_camiones": self.camiones.count_documents({}),
+            "total_choferes": self.choferes.count_documents({}),
+            "total_rutas": self.rutas.count_documents({}),
+            "total_telemetria": self.telemetria.count_documents({}),
+            "alertas": {
+                "exceso_velocidad": excesos,
+                "sobrecalentamiento": temp_altas,
+                "total_alertas": excesos + temp_altas
             }
         }
 
-    def get_recent_alerts(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """[ANALYTICS] Recupera las lecturas de telemetría con anomalías o alertas de seguridad."""
-        query = {"$or": [{"speed_kmh": {"$gt": 100}}, {"engine_temp_c": {"$gt": 95}}, {"fuel_level_pct": {"$lt": 15}}]}
-        return [self._clean(d) for d in self.telemetry.find(query).sort("timestamp", DESCENDING).limit(limit)]
+    def obtener_alertas_recientes(self, limite: int = 10) -> List[Dict[str, Any]]:
+        filtro = {"$or": [{"speed_kmh": {"$gt": 100}}, {"engine_temp_c": {"$gt": 95}}, {"fuel_level_pct": {"$lt": 15}}]}
+        return [self._limpiar_documento(d) for d in self.telemetria.find(filtro).sort("timestamp", -1).limit(limite)]
+
+    # =========================================================================
+    # ALIASES DE COMPATIBILIDAD EN INGLÉS (Garantizan cero ruptura)
+    # =========================================================================
+    def add_truck(self, *a, **kw): return self.agregar_camion(*a, **kw)
+    def get_trucks(self, *a, **kw): return self.obtener_camiones(*a, **kw)
+    def get_truck_by_id(self, *a, **kw): return self.obtener_camion_por_id(*a, **kw)
+    def get_trucks_by_variable(self, *a, **kw): return self.buscar_camiones_por_variable(*a, **kw)
+    def update_truck(self, *a, **kw): return self.actualizar_camion(*a, **kw)
+    def delete_truck(self, *a, **kw): return self.eliminar_camion(*a, **kw)
+    def add_variable_to_truck(self, *a, **kw): return self.agregar_variable_camion(*a, **kw)
+    def delete_variable_from_truck(self, *a, **kw): return self.eliminar_variable_camion(*a, **kw)
+    def add_driver(self, *a, **kw): return self.agregar_chofer(*a, **kw)
+    def get_drivers(self, *a, **kw): return self.obtener_choferes(*a, **kw)
+    def get_driver_by_id(self, *a, **kw): return self.obtener_chofer_por_id(*a, **kw)
+    def update_driver(self, *a, **kw): return self.actualizar_chofer(*a, **kw)
+    def delete_driver(self, *a, **kw): return self.eliminar_chofer(*a, **kw)
+    def add_route(self, *a, **kw): return self.agregar_ruta(*a, **kw)
+    def get_routes(self, *a, **kw): return self.obtener_rutas(*a, **kw)
+    def get_route_by_id(self, *a, **kw): return self.obtener_ruta_por_id(*a, **kw)
+    def update_route(self, *a, **kw): return self.actualizar_ruta(*a, **kw)
+    def delete_route(self, *a, **kw): return self.eliminar_ruta(*a, **kw)
+    def add_geofence(self, *a, **kw): return self.agregar_geocerca(*a, **kw)
+    def get_geofences(self, *a, **kw): return self.obtener_geocercas(*a, **kw)
+    def get_geofence_by_id(self, *a, **kw): return self.obtener_geocerca_por_id(*a, **kw)
+    def update_geofence(self, *a, **kw): return self.actualizar_geocerca(*a, **kw)
+    def delete_geofence(self, *a, **kw): return self.eliminar_geocerca(*a, **kw)
+    def add_telemetry(self, *a, **kw): return self.agregar_telemetria(*a, **kw)
+    def get_telemetry(self, *a, **kw): return self.obtener_telemetria(*a, **kw)
+    def get_telemetry_by_id(self, *a, **kw): return self.obtener_telemetria_por_id(*a, **kw)
+    def update_telemetry(self, *a, **kw): return self.actualizar_telemetria(*a, **kw)
+    def delete_telemetry(self, *a, **kw): return self.eliminar_telemetria(*a, **kw)
+    def get_fleet_summary(self, *a, **kw): return self.obtener_resumen_flota(*a, **kw)
+    def get_recent_alerts(self, *a, **kw): return self.obtener_alertas_recientes(*a, **kw)
+    def bulk_add_telemetry(self, lecturas): return [str(i) for i in self.telemetria.insert_many(lecturas, ordered=False).inserted_ids]
+    def get_truck_statistics(self, camion_id):
+        res = list(self.telemetria.aggregate([{"$match": {"truck_id": camion_id}}, {"$group": {"_id": "$truck_id", "velocidad_promedio": {"$avg": "$speed_kmh"}, "temp_maxima": {"$max": "$engine_temp_c"}, "combustible_promedio": {"$avg": "$fuel_level_pct"}, "total_lecturas": {"$sum": 1}}}]))
+        return self._limpiar_documento(res[0]) if res else {}
